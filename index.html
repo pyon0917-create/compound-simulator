@@ -150,13 +150,28 @@
       cursor: pointer;
       border: none;
     }
-    .slider-value {
-      font-size: 11px;
+    .slider-input {
+      font-size: 12px;
       font-weight: 600;
       color: var(--text);
-      width: 68px;
+      width: 56px;
       text-align: right;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      padding: 3px 5px;
+      outline: none;
       flex-shrink: 0;
+      -moz-appearance: textfield;
+    }
+    .slider-input::-webkit-outer-spin-button,
+    .slider-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .slider-input:focus { border-color: var(--accent-blue); }
+    .slider-unit {
+      font-size: 10px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      min-width: 20px;
     }
 
     /* グラフ */
@@ -254,23 +269,27 @@
   <div class="sliders">
     <div class="slider-row">
       <span class="slider-label">初期元本</span>
-      <input type="range" id="sl-principal" min="0" max="50000000" step="500000" value="5000000" oninput="onSlider()">
-      <span class="slider-value" id="lbl-principal"></span>
+      <input type="range" id="sl-principal" min="0" max="50000000" step="500000" value="5000000" oninput="onSlider('principal')">
+      <input type="number" class="slider-input" id="inp-principal" min="0" max="100000" step="1" value="500" oninput="onTextInput('principal')">
+      <span class="slider-unit">万円</span>
     </div>
     <div class="slider-row">
       <span class="slider-label">毎月積立</span>
-      <input type="range" id="sl-monthly" min="0" max="500000" step="10000" value="50000" oninput="onSlider()">
-      <span class="slider-value" id="lbl-monthly"></span>
+      <input type="range" id="sl-monthly" min="0" max="500000" step="10000" value="50000" oninput="onSlider('monthly')">
+      <input type="number" class="slider-input" id="inp-monthly" min="0" max="10000" step="1" value="5" oninput="onTextInput('monthly')">
+      <span class="slider-unit">万円</span>
     </div>
     <div class="slider-row">
       <span class="slider-label">年利</span>
-      <input type="range" id="sl-rate" min="1" max="15" step="1" value="5" oninput="onSlider()">
-      <span class="slider-value" id="lbl-rate"></span>
+      <input type="range" id="sl-rate" min="1" max="15" step="1" value="5" oninput="onSlider('rate')">
+      <input type="number" class="slider-input" id="inp-rate" min="0.1" max="50" step="0.1" value="5" oninput="onTextInput('rate')">
+      <span class="slider-unit">%</span>
     </div>
     <div class="slider-row">
       <span class="slider-label">運用年数</span>
-      <input type="range" id="sl-years" min="5" max="40" step="5" value="20" oninput="onSlider()">
-      <span class="slider-value" id="lbl-years"></span>
+      <input type="range" id="sl-years" min="5" max="40" step="5" value="20" oninput="onSlider('years')">
+      <input type="number" class="slider-input" id="inp-years" min="1" max="50" step="1" value="20" oninput="onTextInput('years')">
+      <span class="slider-unit">年</span>
     </div>
   </div>
 
@@ -381,30 +400,71 @@ const myChart = new Chart(ctx, {
   }
 });
 
-// ── スライダー更新トラッキング ─────────────────
+// ── スライダートラック更新 ─────────────────────
 function updateSliderTrack(el) {
   const min = +el.min, max = +el.max, val = +el.value;
   const pct = ((val - min) / (max - min) * 100).toFixed(1) + '%';
   el.style.setProperty('--pct', pct);
 }
 
-// ── メイン更新関数 ────────────────────────────
-function onSlider() {
-  const P     = +document.getElementById('sl-principal').value;
-  const M     = +document.getElementById('sl-monthly').value;
-  const rate  = +document.getElementById('sl-rate').value;
-  const years = +document.getElementById('sl-years').value;
+// ── パラメータ取得（テキスト入力が正値） ─────────
+function getParams() {
+  const P     = Math.max(0, +document.getElementById('inp-principal').value) * 1e4;
+  const M     = Math.max(0, +document.getElementById('inp-monthly').value)   * 1e4;
+  const rate  = Math.max(0.1, +document.getElementById('inp-rate').value);
+  const years = Math.max(1,   +document.getElementById('inp-years').value);
+  return { P, M, rate, years };
+}
 
-  // スライダートラック更新
+// ── スライダー → テキスト入力に同期 ─────────────
+function onSlider(field) {
+  if (field === 'principal') {
+    const v = +document.getElementById('sl-principal').value;
+    document.getElementById('inp-principal').value = Math.round(v / 1e4);
+  } else if (field === 'monthly') {
+    const v = +document.getElementById('sl-monthly').value;
+    document.getElementById('inp-monthly').value = Math.round(v / 1e4);
+  } else if (field === 'rate') {
+    document.getElementById('inp-rate').value = +document.getElementById('sl-rate').value;
+  } else if (field === 'years') {
+    document.getElementById('inp-years').value = +document.getElementById('sl-years').value;
+  }
+  updateAllTracks();
+  update();
+}
+
+// ── テキスト入力 → スライダーに同期 ─────────────
+function onTextInput(field) {
+  if (field === 'principal') {
+    const v = Math.max(0, +document.getElementById('inp-principal').value) * 1e4;
+    const sl = document.getElementById('sl-principal');
+    sl.value = Math.min(Math.max(v, +sl.min), +sl.max);
+  } else if (field === 'monthly') {
+    const v = Math.max(0, +document.getElementById('inp-monthly').value) * 1e4;
+    const sl = document.getElementById('sl-monthly');
+    sl.value = Math.min(Math.max(v, +sl.min), +sl.max);
+  } else if (field === 'rate') {
+    const v = +document.getElementById('inp-rate').value;
+    const sl = document.getElementById('sl-rate');
+    sl.value = Math.min(Math.max(v, +sl.min), +sl.max);
+  } else if (field === 'years') {
+    const v = +document.getElementById('inp-years').value;
+    const sl = document.getElementById('sl-years');
+    sl.value = Math.min(Math.max(v, +sl.min), +sl.max);
+  }
+  updateAllTracks();
+  update();
+}
+
+function updateAllTracks() {
   ['sl-principal','sl-monthly','sl-rate','sl-years'].forEach(id => {
     updateSliderTrack(document.getElementById(id));
   });
+}
 
-  // ラベル更新
-  document.getElementById('lbl-principal').textContent = fmt(P);
-  document.getElementById('lbl-monthly').textContent   = fmt(M);
-  document.getElementById('lbl-rate').textContent      = rate + '%';
-  document.getElementById('lbl-years').textContent     = years + '年';
+// ── メイン計算・描画 ──────────────────────────
+function update() {
+  const { P, M, rate, years } = getParams();
 
   // 計算
   const snaps = calcSnapshots(P, M, rate, years);
@@ -424,19 +484,16 @@ function onSlider() {
     `年利${rate}%なら約${dy}年で2倍`;
 
   // グラフ更新（万円単位で渡す）
-  myChart.data.labels              = snaps.map(s => s.year + '年');
-  myChart.data.datasets[0].data   = snaps.map(s => s.principal    / 1e4);
-  myChart.data.datasets[1].data   = snaps.map(s => s.contribution / 1e4);
-  myChart.data.datasets[2].data   = snaps.map(s => s.interest     / 1e4);
+  myChart.data.labels            = snaps.map(s => s.year + '年');
+  myChart.data.datasets[0].data  = snaps.map(s => s.principal    / 1e4);
+  myChart.data.datasets[1].data  = snaps.map(s => s.contribution / 1e4);
+  myChart.data.datasets[2].data  = snaps.map(s => s.interest     / 1e4);
   myChart.update();
 }
 
 // ── シェア機能 ────────────────────────────────
 function shareResult() {
-  const P     = +document.getElementById('sl-principal').value;
-  const M     = +document.getElementById('sl-monthly').value;
-  const rate  = +document.getElementById('sl-rate').value;
-  const years = +document.getElementById('sl-years').value;
+  const { P, M, rate, years } = getParams();
   const snaps = calcSnapshots(P, M, rate, years);
   const last  = snaps[snaps.length - 1];
   const finalAsset    = last.principal + last.contribution + last.interest;
@@ -471,7 +528,8 @@ function showToast(msg) {
 }
 
 // ── 初期描画 ──────────────────────────────────
-onSlider();
+updateAllTracks();
+update();
 </script>
 </body>
 </html>
