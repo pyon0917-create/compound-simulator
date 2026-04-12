@@ -754,7 +754,7 @@ function lpAfterTax(gross, nisaRatio) {
 function calcLifePlan(p) {
   const initYoc = p.initYoc != null ? p.initYoc : 2.89;
   const schdGrowthRate = p.schdGrowthRate != null ? p.schdGrowthRate : 0.05;
-  const cashCap = p.cashCap != null ? p.cashCap : 1000;
+  const cashCap = p.cashCap || 0;
   const initDiv = p.initDiv != null ? p.initDiv : 9.0;
   const inflationRate = p.inflationRate || 0;
   const children = p.children || [];
@@ -933,6 +933,7 @@ function lpSwitchTab(name) {
 }
 
 // 動的データ
+let lpCashKeepManual = false;
 let lpChildren = [];
 let lpPhases = [
   { startAge: 18, endAge: 40, sp500: 0, schd: 0, domestic: 0 },
@@ -1045,10 +1046,15 @@ function lpLink(key) {
   const r = document.getElementById('r_' + key);
   const n = document.getElementById('n_' + key);
   if (!r || !n) return;
-  r.addEventListener('input', () => { n.value = r.value; lpRecalc(); });
+  r.addEventListener('input', () => {
+    n.value = r.value;
+    if (key === 'cashKeep') lpCashKeepManual = true;
+    lpRecalc();
+  });
   n.addEventListener('input', () => {
     const v = parseFloat(n.value);
     if (!isNaN(v)) r.value = Math.min(Math.max(v, +r.min), +r.max);
+    if (key === 'cashKeep') lpCashKeepManual = true;
     lpRecalc();
   });
 }
@@ -1376,7 +1382,18 @@ function lpUpdateOutput(rows) {
   lpUpdateTable(rows, params, fiAge);
 }
 
+function lpUpdateCashKeepAuto() {
+  if (lpCashKeepManual) return;
+  const lc1 = parseFloat(document.getElementById('n_livingCost1')?.value) || 0;
+  const auto = 1000 + lc1 * 0.5;
+  const r = document.getElementById('r_cashKeep');
+  const n = document.getElementById('n_cashKeep');
+  if (n) n.value = auto;
+  if (r) r.value = Math.min(Math.max(auto, +r.min), +r.max);
+}
+
 function lpRecalc() {
+  lpUpdateCashKeepAuto();
   const params = lpGetParams();
   const rows = calcLifePlan(params);
   lpUpdateOutput(rows);
@@ -1407,6 +1424,7 @@ function lpCopyUrl() {
 function lpLoadFromUrl() {
   const params = new URLSearchParams(location.search);
   if (params.size === 0) return false;
+  if (params.has('cashKeep')) lpCashKeepManual = true;
   let loaded = false;
   for (const key of LP_URL_KEYS) {
     if (params.has(key)) {
