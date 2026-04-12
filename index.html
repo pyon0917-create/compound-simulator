@@ -1519,7 +1519,7 @@ function lpUpdateSummary(rows, params) {
     children.forEach((c, i) => {
       if (!c.useChildNisa) return;
       const used = last.childNisaUsed[i] || 0;
-      const val = last.childNisaVal ? (last.childNisaVal[i] || 0) : 0;
+      const val = rows[0].childNisaVal ? (rows[0].childNisaVal[i] || 0) : 0;
       const childFinalAge = c.age + (params.endAge - params.startAge);
       const remaining = childFinalAge >= 18 ? Math.max(0, NISA_LIMIT - used) : '—';
       html += `<div class="lp-card" style="margin-bottom:8px;padding:8px 12px;">
