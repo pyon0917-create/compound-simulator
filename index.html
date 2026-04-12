@@ -390,6 +390,11 @@
       .lp-group-title { color: #aaa; border-color: #444; }
       #lp-table th { color: #aaa; border-color: #444; }
       #lp-table td { border-color: #2a2a2a; color: #ddd; }
+      #lp-phases-list > div { border-color: #444 !important; }
+      #lp-phases-list label { color: #ccc; }
+      #lp-phases-list button, #lp-children-list button,
+      #lp-panel button { background: #333 !important; color: #ccc !important; border-color: #555 !important; }
+      #lp-share-btn, #lp-csv-btn { background: #333 !important; color: #ccc !important; border-color: #555 !important; }
     }
   </style>
 </head>
@@ -697,182 +702,171 @@ update();
 </script>
 
 <script>
-// ── ライフプラン計算エンジン (PHASE_A 仕様) ──────────────────────
+// ── ライフプラン計算エンジン (PHASE_E) ──────────────────────
 const DEFAULT_PARAMS = {
-  startAge: 35,
-  endAge: 80,
-  retireAge: 60,
-  salary: 800,
-  salaryGrowthRate: 0.01,
-  wifeIncome: 156,
-  severance: 2500,
-  pension: 266,
-  sp500Rate: 0.07,
-  schdGrowthRate: 0.05,
-  initYoc: 2.89,
-  yocGrowthRate: 0.05,
-  sp500WithdrawStartAge: 52,
-  sp500WithdrawRate: 0.04,
+  startAge: 35, endAge: 80, retireAge: 60,
+  salary: 800, salaryGrowthRate: 0.01, wifeIncome: 156,
+  severance: 2500, pension: 266,
+  sp500Rate: 0.07, schdGrowthRate: 0.05,
+  initYoc: 2.89, yocGrowthRate: 0.05,
+  sp500WithdrawStartAge: 52, sp500WithdrawRate: 0.04,
   cashCap: 1000,
   phase1EndAge: 40,
   p1Sp500: 120, p1Schd: 240, p1Domestic: 60,
-  p2Sp500: 0,   p2Schd: 180, p2Domestic: 180,
-  livingCost1: 600,
-  livingCostChangeAge: 45,
-  livingCost2: 700,
-  livingCostRetired: 600,
-  initCash: 195,
-  initSp500: 506.3,
-  initSchd: 489.9,
-  initDomestic: 132.0,
-  initDiv: 9.0,
+  p2Sp500: 0, p2Schd: 180, p2Domestic: 180,
+  livingCost1: 600, livingCostChangeAge: 45,
+  livingCost2: 700, livingCostRetired: 600,
+  initCash: 195, initSp500: 506.3, initSchd: 489.9, initDomestic: 132.0, initDiv: 9.0,
 };
 
-function calcLifePlan(params) {
-  const p = params;
-  // Phase_A / Phase_B 双方のパラメータ名を吸収
-  const initYoc        = p.initYoc        != null ? p.initYoc        : (p.schdInitialYoc != null ? p.schdInitialYoc * 100 : 2.89);
+const LP_TUITION_DEFAULTS = [
+  { label: '幼稚園(3-5歳)', ageMin: 3, ageMax: 5, cost: 30 },
+  { label: '小学校(6-11歳)', ageMin: 6, ageMax: 11, cost: 35 },
+  { label: '中学校(12-14歳)', ageMin: 12, ageMax: 14, cost: 50 },
+  { label: '高校(15-17歳)', ageMin: 15, ageMax: 17, cost: 55 },
+  { label: '大学(18-21歳)', ageMin: 18, ageMax: 21, cost: 150 },
+];
+
+function lpCalcTuitionForAge(childAge, tuitionCosts) {
+  for (const t of tuitionCosts) {
+    if (childAge >= t.ageMin && childAge <= t.ageMax) return t.cost;
+  }
+  return 0;
+}
+
+function lpGetInvestForAge(age, phases, retireAge) {
+  if (age >= retireAge) return { iSp: 0, iSc: 0, iDo: 0 };
+  for (const ph of phases) {
+    if (age >= ph.startAge && age < ph.endAge) return { iSp: ph.sp500, iSc: ph.schd, iDo: ph.domestic };
+  }
+  return { iSp: 0, iSc: 0, iDo: 0 };
+}
+
+function calcLifePlan(p) {
+  const initYoc        = p.initYoc != null ? p.initYoc : 2.89;
   const schdGrowthRate = p.schdGrowthRate != null ? p.schdGrowthRate : 0.05;
-  const cashCap        = p.cashCap        != null ? p.cashCap        : (p.cashKeep != null ? p.cashKeep : 1000);
-  const initDiv        = p.initDiv        != null ? p.initDiv        : 9.0;
-  const sp500WithdrawRate = p.sp500WithdrawRate;
-  const sp500WithdrawAmt  = p.sp500WithdrawAmt;
+  const cashCap        = p.cashCap != null ? p.cashCap : 1000;
+  const initDiv        = p.initDiv != null ? p.initDiv : 9.0;
+  const inflationRate  = p.inflationRate || 0;
+  const children       = p.children || [];
+  const tuitionCosts   = p.tuitionCosts || LP_TUITION_DEFAULTS;
+  const domYoc         = p.domYoc != null ? p.domYoc : 0;
+  const domYocGrowth   = p.domYocGrowth != null ? p.domYocGrowth : 0;
+  const phases         = p.phases || null;
 
   const rows = [];
 
-  // ===== 35歳: 初期スナップショット =====
-  const lc0 = p.startAge < p.livingCostChangeAge ? p.livingCost1
-            : p.startAge < p.retireAge            ? p.livingCost2
-            : p.livingCostRetired;
-  const i0Sp = (p.startAge < p.retireAge && p.startAge < p.phase1EndAge) ? p.p1Sp500
-             : (p.startAge < p.retireAge)                                 ? p.p2Sp500 : 0;
-  const i0Sc = (p.startAge < p.retireAge && p.startAge < p.phase1EndAge) ? p.p1Schd
-             : (p.startAge < p.retireAge)                                 ? p.p2Schd : 0;
-  const i0Do = (p.startAge < p.retireAge && p.startAge < p.phase1EndAge) ? p.p1Domestic
-             : (p.startAge < p.retireAge)                                 ? p.p2Domestic : 0;
+  // 生活費の基準年齢判定
+  function baseLivingCost(age) {
+    if (age < p.livingCostChangeAge) return p.livingCost1;
+    if (age < p.retireAge) return p.livingCost2;
+    return p.livingCostRetired;
+  }
+
+  // 学費計算
+  function tuitionForYear(myAge) {
+    let total = 0;
+    for (const c of children) {
+      const childAge = c.age + (myAge - p.startAge);
+      total += lpCalcTuitionForAge(childAge, tuitionCosts);
+    }
+    return total;
+  }
+
+  // 投資額判定
+  function investForAge(age) {
+    if (phases && phases.length > 0) return lpGetInvestForAge(age, phases, p.retireAge);
+    if (age >= p.retireAge) return { iSp: 0, iSc: 0, iDo: 0 };
+    if (age < (p.phase1EndAge || 40)) return { iSp: p.p1Sp500||0, iSc: p.p1Schd||0, iDo: p.p1Domestic||0 };
+    return { iSp: p.p2Sp500||0, iSc: p.p2Schd||0, iDo: p.p2Domestic||0 };
+  }
+
+  // ===== 初期スナップショット =====
+  const lc0base = baseLivingCost(p.startAge);
+  const tuition0 = tuitionForYear(p.startAge);
+  const lc0 = lc0base + tuition0;
+  const inv0 = investForAge(p.startAge);
   const totIncome0 = p.salary + p.wifeIncome + initDiv;
-  const totInv0    = i0Sp + i0Sc + i0Do;
+  const totInv0 = inv0.iSp + inv0.iSc + inv0.iDo;
+  const initDomDiv = domYoc > 0 ? p.initDomestic * domYoc / 100 : 0;
   rows.push({
-    age: p.startAge,
-    salary: p.salary,
-    wifeIncome: p.wifeIncome,
-    dividendIncome: initDiv,
-    yoc: initYoc,
-    sp500Withdraw: 0,
-    pension: 0,
-    severance: 0,
-    totalIncome: totIncome0,
-    livingCost: lc0,
-    investSp500: i0Sp,
-    investSchd:  i0Sc,
-    investDomestic: i0Do,
+    age: p.startAge, salary: p.salary, wifeIncome: p.wifeIncome,
+    dividendIncome: initDiv, domDividend: initDomDiv, yoc: initYoc, domYocVal: domYoc,
+    sp500Withdraw: 0, pension: 0, severance: 0,
+    totalIncome: totIncome0 + initDomDiv, livingCost: lc0, tuition: tuition0,
+    investSp500: inv0.iSp, investSchd: inv0.iSc, investDomestic: inv0.iDo,
     totalInvest: totInv0,
-    preinvestBalance:  totIncome0 - lc0,
-    postinvestBalance: totIncome0 - lc0 - totInv0,
-    cash: p.initCash,
-    sp500Val: p.initSp500,
-    schdVal:  p.initSchd,
-    domesticVal: p.initDomestic,
-    severanceRemain: 0,
+    preinvestBalance: totIncome0 + initDomDiv - lc0,
+    postinvestBalance: totIncome0 + initDomDiv - lc0 - totInv0,
+    cash: p.initCash, sp500Val: p.initSp500, schdVal: p.initSchd,
+    domesticVal: p.initDomestic, severanceRemain: 0,
     totalAsset: p.initCash + p.initSp500 + p.initSchd + p.initDomestic,
   });
 
-  let prevSp500 = p.initSp500;
-  let prevSchd  = p.initSchd;
-  let prevDom   = p.initDomestic;
-  let prevCash  = p.initCash;
-  let prevSev   = 0;
-  let yoc       = initYoc;
-  let salary    = p.salary;
+  let prevSp500 = p.initSp500, prevSchd = p.initSchd, prevDom = p.initDomestic;
+  let prevCash = p.initCash, prevSev = 0;
+  let yoc = initYoc, curDomYoc = domYoc, salary = p.salary;
+  let lcInflationFactor = 1;
 
   for (let age = p.startAge + 1; age <= p.endAge; age++) {
-    // 1. 投資額・生活費（年齢フェーズ）
-    let iSp, iSc, iDo;
-    if (age >= p.retireAge) { iSp = 0; iSc = 0; iDo = 0; }
-    else if (age < p.phase1EndAge) { iSp = p.p1Sp500; iSc = p.p1Schd; iDo = p.p1Domestic; }
-    else                            { iSp = p.p2Sp500; iSc = p.p2Schd; iDo = p.p2Domestic; }
+    const inv = investForAge(age);
+    const iSp = inv.iSp, iSc = inv.iSc, iDo = inv.iDo;
 
-    let lc;
-    if (age < p.livingCostChangeAge) lc = p.livingCost1;
-    else if (age < p.retireAge)      lc = p.livingCost2;
-    else                              lc = p.livingCostRetired;
+    lcInflationFactor *= (1 + inflationRate);
+    const lcBase = baseLivingCost(age) * lcInflationFactor;
+    const tuition = tuitionForYear(age);
+    const lc = lcBase + tuition;
 
-    // 5. SP500取崩 (前年SP500評価額より控除してから成長させると CSV と一致)
     let sp500Withdraw = 0;
-    if (age >= p.sp500WithdrawStartAge) {
-      if (sp500WithdrawRate != null) sp500Withdraw = prevSp500 * sp500WithdrawRate;
-      else if (sp500WithdrawAmt != null) sp500Withdraw = Math.min(sp500WithdrawAmt, prevSp500);
+    if (age >= p.sp500WithdrawStartAge && p.sp500WithdrawRate != null) {
+      sp500Withdraw = prevSp500 * p.sp500WithdrawRate;
     }
 
-    // 2. 評価額更新
     const newSp500 = (prevSp500 - sp500Withdraw) * (1 + p.sp500Rate) + iSp;
-    const newSchd  = prevSchd  * (1 + schdGrowthRate) + iSc;
-    const newDom   = prevDom   + iDo;
+    const newSchd  = prevSchd * (1 + schdGrowthRate) + iSc;
+    const newDom   = prevDom + iDo;
 
-    // 3. YOC更新
     yoc = yoc * (1 + p.yocGrowthRate);
-
-    // 4. 配当収入: 前年評価額 × 当年YOC
     const dividendIncome = (prevSchd + prevDom) * yoc / 100;
 
-    // 6. 給与・収入合計
+    if (domYocGrowth > 0) curDomYoc = curDomYoc * (1 + domYocGrowth);
+    const domDividend = curDomYoc > 0 ? prevDom * curDomYoc / 100 : 0;
+
     salary = salary * (1 + p.salaryGrowthRate);
     const salNow     = age < p.retireAge ? salary : 0;
     const wifeNow    = age < p.retireAge ? p.wifeIncome : 0;
     const pensionNow = age >= p.retireAge ? p.pension : 0;
     const sevNow     = age === p.retireAge ? p.severance : 0;
-    const totalIncome = salNow + wifeNow + dividendIncome + sp500Withdraw + pensionNow + sevNow;
+    const totalIncome = salNow + wifeNow + dividendIncome + domDividend + sp500Withdraw + pensionNow + sevNow;
 
-    // 7. 収支
     const preinv = totalIncome - lc;
     const totInv = iSp + iSc + iDo;
     const postinv = preinv - totInv;
 
-    // 8. 現金 (上限キャップのみ)
     let cashNew = prevCash + postinv;
     if (cashNew > cashCap) cashNew = cashCap;
 
-    // 9. 退職金残高
     const sevRem = age === p.retireAge ? p.severance : prevSev;
-
-    // 10. 総資産
     const totalAsset = cashNew + newSp500 + newSchd + newDom + sevRem;
 
     rows.push({
-      age,
-      salary: salNow,
-      wifeIncome: wifeNow,
-      dividendIncome,
-      yoc,
-      sp500Withdraw,
-      pension: pensionNow,
-      severance: sevNow,
-      totalIncome,
-      livingCost: lc,
-      investSp500: iSp,
-      investSchd:  iSc,
-      investDomestic: iDo,
-      totalInvest: totInv,
-      preinvestBalance:  preinv,
-      postinvestBalance: postinv,
-      cash: cashNew,
-      sp500Val: newSp500,
-      schdVal:  newSchd,
-      domesticVal: newDom,
-      severanceRemain: sevRem,
-      totalAsset,
+      age, salary: salNow, wifeIncome: wifeNow,
+      dividendIncome, domDividend, yoc, domYocVal: curDomYoc,
+      sp500Withdraw, pension: pensionNow, severance: sevNow,
+      totalIncome, livingCost: lc, tuition,
+      investSp500: iSp, investSchd: iSc, investDomestic: iDo,
+      totalInvest: totInv, preinvestBalance: preinv, postinvestBalance: postinv,
+      cash: cashNew, sp500Val: newSp500, schdVal: newSchd,
+      domesticVal: newDom, severanceRemain: sevRem, totalAsset,
     });
 
-    prevSp500 = newSp500;
-    prevSchd  = newSchd;
-    prevDom   = newDom;
-    prevCash  = cashNew;
-    prevSev   = sevRem;
+    prevSp500 = newSp500; prevSchd = newSchd; prevDom = newDom;
+    prevCash = cashNew; prevSev = sevRem;
   }
   return rows;
 }
 
-// ===== ライフプランUI =====
+// ===== ライフプランUI (PHASE_E) =====
 function lpSwitchTab(name) {
   document.querySelectorAll('.lp-content').forEach(el => el.style.display = 'none');
   document.querySelectorAll('.lp-tab').forEach(el => el.classList.remove('lp-tab-active'));
@@ -883,65 +877,92 @@ function lpSwitchTab(name) {
   }
 }
 
-// 入力フィールド定義
-const LP_GROUPS = [
+// 動的データ
+let lpChildren = [];
+let lpPhases = [
+  { startAge: 35, endAge: 40, sp500: 120, schd: 240, domestic: 60 },
+  { startAge: 40, endAge: 60, sp500: 0,   schd: 180, domestic: 180 },
+];
+let lpTuitionCosts = LP_TUITION_DEFAULTS.map(t => ({ ...t }));
+
+// 固定フィールド
+const LP_FIELDS = [
   { title: '基本設定', fields: [
-    { key: 'startAge',  label: '開始年齢', min: 20, max: 60, step: 1, def: 35, unit: '歳' },
-    { key: 'endAge',    label: '目標年齢', min: 50, max: 90, step: 1, def: 80, unit: '歳' },
+    { key: 'startAge', label: '開始年齢', min: 20, max: 60, step: 1, def: 35, unit: '歳' },
+    { key: 'endAge', label: '目標年齢', min: 50, max: 90, step: 1, def: 80, unit: '歳' },
     { key: 'retireAge', label: '退職年齢', min: 40, max: 70, step: 1, def: 60, unit: '歳' },
   ]},
+  { title: '家族設定', id: 'lp-family-section', fields: [
+    { key: 'spouseAge', label: '配偶者の年齢', min: 20, max: 80, step: 1, def: 33, unit: '歳' },
+  ]},
   { title: '収入設定', fields: [
-    { key: 'salary',           label: '給与収入(開始時)',     min: 0, max: 3000, step: 10,  def: 800, unit: '万円/年' },
-    { key: 'salaryGrowthRate', label: '給与昇給率',            min: 0, max: 5,    step: 0.1, def: 1.0, unit: '%/年' },
-    { key: 'wifeIncome',       label: '妻・パートナー入金',    min: 0, max: 500,  step: 10,  def: 156, unit: '万円/年' },
-    { key: 'severance',        label: '退職金',                min: 0, max: 5000, step: 100, def: 2500, unit: '万円' },
-    { key: 'pension',          label: '年金収入',              min: 0, max: 500,  step: 10,  def: 266, unit: '万円/年' },
+    { key: 'salary', label: '給与収入（手取り）', min: 0, max: 3000, step: 10, def: 800, unit: '万円/年' },
+    { key: 'salaryGrowthRate', label: '給与昇給率', min: 0, max: 5, step: 0.1, def: 1.0, unit: '%/年' },
+    { key: 'wifeIncome', label: '配偶者入金', min: 0, max: 500, step: 10, def: 156, unit: '万円/年' },
+    { key: 'severance', label: '退職金', min: 0, max: 5000, step: 100, def: 2500, unit: '万円' },
+    { key: 'pension', label: '年金収入', min: 0, max: 500, step: 10, def: 266, unit: '万円/年' },
   ]},
   { title: '投資設定', fields: [
-    { key: 'sp500Rate',             label: 'SP500 期待年利',     min: 1, max: 15, step: 0.1, def: 7.0, unit: '%' },
-    { key: 'schdInitialYoc',        label: 'SCHD 初期YOC',       min: 1, max: 10, step: 0.01, def: 2.89, unit: '%' },
-    { key: 'yocGrowthRate',         label: 'YOC 年間上昇率',     min: 0, max: 10, step: 0.1, def: 5.0, unit: '%' },
-    { key: 'schdGrowthRate',        label: 'SCHD 値上り率',      min: 0, max: 15, step: 0.1, def: 5.0, unit: '%' },
-    { key: 'sp500WithdrawStartAge', label: 'SP500取崩 開始年齢', min: 40, max: 75, step: 1, def: 52, unit: '歳' },
-    { key: 'sp500WithdrawRate',     label: 'SP500取崩率',        min: 0, max: 10, step: 0.1, def: 4.0, unit: '%' },
-    { key: 'cashKeep',              label: '現金キャップ',       min: 0, max: 3000, step: 100, def: 1000, unit: '万円' },
-  ]},
-  { title: '投資フェーズ', fields: [
-    { key: 'phase1EndAge', label: 'フェーズ切替年齢',    min: 35, max: 60, step: 1, def: 40, unit: '歳' },
-    { key: 'p1Sp500',      label: 'フェーズ1 SP500投資', min: 0, max: 500, step: 10, def: 120, unit: '万円/年' },
-    { key: 'p1Schd',       label: 'フェーズ1 SCHD投資',  min: 0, max: 500, step: 10, def: 240, unit: '万円/年' },
-    { key: 'p1Domestic',   label: 'フェーズ1 国内投資',  min: 0, max: 500, step: 10, def: 60,  unit: '万円/年' },
-    { key: 'p2Sp500',      label: 'フェーズ2 SP500投資', min: 0, max: 500, step: 10, def: 0,   unit: '万円/年' },
-    { key: 'p2Schd',       label: 'フェーズ2 SCHD投資',  min: 0, max: 500, step: 10, def: 180, unit: '万円/年' },
-    { key: 'p2Domestic',   label: 'フェーズ2 国内投資',  min: 0, max: 500, step: 10, def: 180, unit: '万円/年' },
+    { key: 'sp500Rate', label: 'インデックスファンド 期待年利', min: 1, max: 15, step: 0.1, def: 7.0, unit: '%' },
+    { key: 'schdInitialYoc', label: '米国高配当株ETF 初期YOC', min: 0.5, max: 10, step: 0.01, def: 2.89, unit: '%' },
+    { key: 'yocGrowthRate', label: 'ETF YOC 年間上昇率', min: 0, max: 10, step: 0.1, def: 5.0, unit: '%' },
+    { key: 'schdGrowthRate', label: '米国高配当株ETF 値上り率', min: 0, max: 15, step: 0.1, def: 5.0, unit: '%' },
+    { key: 'domYoc', label: '国内高配当 取得時利回り', min: 0, max: 10, step: 0.1, def: 3.0, unit: '%' },
+    { key: 'domYocGrowth', label: '国内高配当 増配率', min: 0, max: 10, step: 0.1, def: 3.0, unit: '%' },
+    { key: 'sp500WithdrawStartAge', label: 'インデックス取崩 開始年齢', min: 40, max: 75, step: 1, def: 52, unit: '歳' },
+    { key: 'sp500WithdrawRate', label: 'インデックス取崩率', min: 0, max: 10, step: 0.1, def: 4.0, unit: '%' },
+    { key: 'cashKeep', label: '現金キャップ', min: 0, max: 3000, step: 100, def: 1000, unit: '万円' },
   ]},
   { title: '生活費設定', fields: [
-    { key: 'livingCost1',         label: '生活費(変化年齢前)',  min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
-    { key: 'livingCostChangeAge', label: '生活費 変化年齢',     min: 35, max: 70, step: 1, def: 45, unit: '歳' },
-    { key: 'livingCost2',         label: '生活費(変化年齢〜退職)', min: 0, max: 2000, step: 50, def: 700, unit: '万円/年' },
-    { key: 'livingCostRetired',   label: '退職後 生活費',       min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
+    { key: 'livingCost1', label: '生活費(変化年齢前)', min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
+    { key: 'livingCostChangeAge', label: '生活費 変化年齢', min: 35, max: 70, step: 1, def: 45, unit: '歳' },
+    { key: 'livingCost2', label: '生活費(変化年齢〜退職)', min: 0, max: 2000, step: 50, def: 700, unit: '万円/年' },
+    { key: 'livingCostRetired', label: '退職後 生活費', min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
+    { key: 'inflationRate', label: '生活費インフレ率', min: 0, max: 5, step: 0.1, def: 1.0, unit: '%/年' },
   ]},
 ];
 
-function lpBuildPanel() {
-  const html = LP_GROUPS.map(g => {
-    const fields = g.fields.map(f => `
-      <div class="lp-field">
-        <div class="lp-field-header">
-          <label class="lp-label">${f.label}</label>
-          <span class="lp-unit">${f.unit}</span>
-        </div>
-        <div class="lp-input-row">
-          <input type="range" id="r_${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${f.def}">
-          <input type="number" id="n_${f.key}" min="${f.min}" step="${f.step}" value="${f.def}" class="lp-num">
-        </div>
-      </div>
-    `).join('');
-    return `<div class="lp-group"><div class="lp-group-title">${g.title}</div>${fields}</div>`;
-  }).join('');
-  document.getElementById('lp-panel').innerHTML = html;
+function lpFieldHtml(f) {
+  return `<div class="lp-field">
+    <div class="lp-field-header"><label class="lp-label">${f.label}</label><span class="lp-unit">${f.unit}</span></div>
+    <div class="lp-input-row">
+      <input type="range" id="r_${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${f.def}">
+      <input type="number" id="n_${f.key}" min="${f.min}" step="${f.step}" value="${f.def}" class="lp-num">
+    </div>
+  </div>`;
+}
 
-  LP_GROUPS.forEach(g => g.fields.forEach(f => lpLink(f.key)));
+function lpBuildPanel() {
+  let html = '';
+  for (const g of LP_FIELDS) {
+    html += `<div class="lp-group"><div class="lp-group-title">${g.title}</div>`;
+    html += g.fields.map(lpFieldHtml).join('');
+    if (g.id === 'lp-family-section') {
+      html += `<div id="lp-children-list"></div>
+        <button onclick="lpAddChild()" style="font-size:12px;padding:6px 12px;cursor:pointer;border-radius:4px;border:1px solid #ccc;background:#fff;margin-top:4px;">+ 子どもを追加</button>`;
+    }
+    html += '</div>';
+  }
+  // 学費設定
+  html += `<div class="lp-group"><div class="lp-group-title">学費設定</div><div id="lp-tuition-fields">`;
+  for (let i = 0; i < lpTuitionCosts.length; i++) {
+    const t = lpTuitionCosts[i];
+    html += `<div class="lp-field"><div class="lp-field-header"><label class="lp-label">${t.label}</label><span class="lp-unit">万円/年</span></div>
+      <div class="lp-input-row">
+        <input type="range" id="r_tuition${i}" min="0" max="300" step="5" value="${t.cost}">
+        <input type="number" id="n_tuition${i}" min="0" step="5" value="${t.cost}" class="lp-num">
+      </div></div>`;
+  }
+  html += '</div></div>';
+  // 投資フェーズ
+  html += `<div class="lp-group"><div class="lp-group-title">投資フェーズ</div><div id="lp-phases-list"></div>
+    <button onclick="lpAddPhase()" style="font-size:12px;padding:6px 12px;cursor:pointer;border-radius:4px;border:1px solid #ccc;background:#fff;margin-top:4px;">+ フェーズを追加</button></div>`;
+
+  document.getElementById('lp-panel').innerHTML = html;
+  LP_FIELDS.forEach(g => g.fields.forEach(f => lpLink(f.key)));
+  for (let i = 0; i < lpTuitionCosts.length; i++) lpLinkTuition(i);
+  lpRenderChildren();
+  lpRenderPhases();
 }
 
 function lpLink(key) {
@@ -956,66 +977,116 @@ function lpLink(key) {
   });
 }
 
+function lpLinkTuition(i) {
+  const r = document.getElementById('r_tuition' + i);
+  const n = document.getElementById('n_tuition' + i);
+  if (!r || !n) return;
+  r.addEventListener('input', () => { n.value = r.value; lpTuitionCosts[i].cost = +r.value; lpRecalc(); });
+  n.addEventListener('input', () => { r.value = Math.min(Math.max(+n.value, 0), 300); lpTuitionCosts[i].cost = +n.value; lpRecalc(); });
+}
+
+// ===== 子ども管理 =====
+function lpAddChild() {
+  lpChildren.push({ age: 0 });
+  lpRenderChildren();
+  lpRecalc();
+}
+function lpRemoveChild(i) {
+  lpChildren.splice(i, 1);
+  lpRenderChildren();
+  lpRecalc();
+}
+function lpRenderChildren() {
+  const el = document.getElementById('lp-children-list');
+  if (!el) return;
+  el.innerHTML = lpChildren.map((c, i) => `
+    <div class="lp-field" style="display:flex;align-items:center;gap:6px;">
+      <label class="lp-label" style="flex-shrink:0;">子ども${i + 1}</label>
+      <input type="number" value="${c.age}" min="-5" max="30" step="1" class="lp-num" style="width:60px;"
+        onchange="lpChildren[${i}].age=+this.value;lpRecalc();">
+      <span class="lp-unit">歳</span>
+      <button onclick="lpRemoveChild(${i})" style="font-size:11px;padding:2px 8px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#fff;color:#E24B4A;">削除</button>
+    </div>
+  `).join('');
+}
+
+// ===== フェーズ管理 =====
+function lpAddPhase() {
+  const last = lpPhases.length > 0 ? lpPhases[lpPhases.length - 1] : null;
+  lpPhases.push({ startAge: last ? last.endAge : 35, endAge: last ? last.endAge + 10 : 45, sp500: 0, schd: 100, domestic: 100 });
+  lpRenderPhases();
+  lpRecalc();
+}
+function lpRemovePhase(i) {
+  lpPhases.splice(i, 1);
+  lpRenderPhases();
+  lpRecalc();
+}
+function lpRenderPhases() {
+  const el = document.getElementById('lp-phases-list');
+  if (!el) return;
+  el.innerHTML = lpPhases.map((ph, i) => `
+    <div style="border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:8px;position:relative;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:12px;font-weight:600;color:#555;">フェーズ${i + 1}</span>
+        <button onclick="lpRemovePhase(${i})" style="font-size:11px;padding:2px 8px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#fff;color:#E24B4A;">削除</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:4px;">
+        <label>開始 <input type="number" value="${ph.startAge}" min="20" max="80" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].startAge=+this.value;lpRecalc();"></label>
+        <label>終了 <input type="number" value="${ph.endAge}" min="20" max="80" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].endAge=+this.value;lpRecalc();"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px;">
+        <label>ｲﾝﾃﾞｯｸｽ<input type="number" value="${ph.sp500}" min="0" step="10" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].sp500=+this.value;lpRecalc();"></label>
+        <label>米国ETF<input type="number" value="${ph.schd}" min="0" step="10" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].schd=+this.value;lpRecalc();"></label>
+        <label>国内<input type="number" value="${ph.domestic}" min="0" step="10" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].domestic=+this.value;lpRecalc();"></label>
+      </div>
+    </div>
+  `).join('');
+}
+
 function lpGetParams() {
-  const v = key => parseFloat(document.getElementById('n_' + key).value);
+  const v = key => { const el = document.getElementById('n_' + key); return el ? parseFloat(el.value) : 0; };
   return {
-    startAge: v('startAge'),
-    endAge:   v('endAge'),
-    retireAge: v('retireAge'),
-    salary:   v('salary'),
-    salaryGrowthRate: v('salaryGrowthRate') / 100,
-    wifeIncome: v('wifeIncome'),
-    severance:  v('severance'),
-    pension:    v('pension'),
-    sp500Rate:  v('sp500Rate') / 100,
-    initYoc:    v('schdInitialYoc'),
-    yocGrowthRate:   v('yocGrowthRate') / 100,
-    schdGrowthRate:  v('schdGrowthRate') / 100,
+    startAge: v('startAge'), endAge: v('endAge'), retireAge: v('retireAge'),
+    salary: v('salary'), salaryGrowthRate: v('salaryGrowthRate') / 100,
+    wifeIncome: v('wifeIncome'), severance: v('severance'), pension: v('pension'),
+    sp500Rate: v('sp500Rate') / 100,
+    initYoc: v('schdInitialYoc'),
+    yocGrowthRate: v('yocGrowthRate') / 100,
+    schdGrowthRate: v('schdGrowthRate') / 100,
+    domYoc: v('domYoc'), domYocGrowth: v('domYocGrowth') / 100,
     sp500WithdrawStartAge: v('sp500WithdrawStartAge'),
     sp500WithdrawRate: v('sp500WithdrawRate') / 100,
     cashCap: v('cashKeep'),
-    phase1EndAge: v('phase1EndAge'),
-    p1Sp500: v('p1Sp500'), p1Schd: v('p1Schd'), p1Domestic: v('p1Domestic'),
-    p2Sp500: v('p2Sp500'), p2Schd: v('p2Schd'), p2Domestic: v('p2Domestic'),
-    livingCost1: v('livingCost1'),
-    livingCostChangeAge: v('livingCostChangeAge'),
-    livingCost2: v('livingCost2'),
-    livingCostRetired: v('livingCostRetired'),
+    livingCost1: v('livingCost1'), livingCostChangeAge: v('livingCostChangeAge'),
+    livingCost2: v('livingCost2'), livingCostRetired: v('livingCostRetired'),
+    inflationRate: v('inflationRate') / 100,
+    children: lpChildren, tuitionCosts: lpTuitionCosts, phases: lpPhases,
     initCash: 195, initSp500: 506.3, initSchd: 489.9, initDomestic: 132, initDiv: 9.0,
   };
 }
 
-// ===== 出力エリアHTML =====
+// ===== 出力 =====
 function lpBuildOutput() {
   document.getElementById('lp-output').innerHTML = `
     <div style="text-align:right; margin-bottom:8px;">
-      <button id="lp-share-btn" onclick="lpShare()" style="font-size:13px; padding:8px 16px; cursor:pointer; border-radius:6px; border:1px solid #ccc; background:#fff;">結果をシェア</button>
+      <button id="lp-share-btn" onclick="lpShare()" style="font-size:13px;padding:8px 16px;cursor:pointer;border-radius:6px;border:1px solid #ccc;background:#fff;">結果をシェア</button>
     </div>
-    <div id="lp-summary" style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:24px;">
+    <div id="lp-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">
       <div class="lp-card"><div class="lp-card-label">最終総資産</div><div class="lp-card-value" id="lp-s-asset">—</div></div>
       <div class="lp-card"><div class="lp-card-label">FI達成年齢</div><div class="lp-card-value" id="lp-s-fi">—</div></div>
       <div class="lp-card"><div class="lp-card-label">退職時 年間配当</div><div class="lp-card-value" id="lp-s-div">—</div></div>
     </div>
-    <div style="margin-bottom:32px;">
-      <h3 style="font-size:14px; margin-bottom:8px; color:#555;">総資産推移</h3>
-      <canvas id="lp-chart-asset" style="max-height:300px;"></canvas>
-    </div>
-    <div style="margin-bottom:32px;">
-      <h3 style="font-size:14px; margin-bottom:8px; color:#555;">収入内訳推移</h3>
-      <canvas id="lp-chart-income" style="max-height:280px;"></canvas>
-    </div>
-    <div style="margin-bottom:32px;">
-      <h3 style="font-size:14px; margin-bottom:8px; color:#555;">年間収支</h3>
-      <canvas id="lp-chart-balance" style="max-height:240px;"></canvas>
-    </div>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <h3 style="font-size:14px; color:#555; margin:0;">年次データ</h3>
-      <button id="lp-csv-btn" onclick="lpDownloadCsv()" style="font-size:12px; padding:6px 12px; cursor:pointer; border-radius:6px; border:1px solid #ccc; background:#fff;">CSVダウンロード</button>
+    <div style="margin-bottom:32px;"><h3 style="font-size:14px;margin-bottom:8px;color:#555;">総資産推移</h3><canvas id="lp-chart-asset" style="max-height:300px;"></canvas></div>
+    <div style="margin-bottom:32px;"><h3 style="font-size:14px;margin-bottom:8px;color:#555;">収入内訳推移</h3><canvas id="lp-chart-income" style="max-height:280px;"></canvas></div>
+    <div style="margin-bottom:32px;"><h3 style="font-size:14px;margin-bottom:8px;color:#555;">年間収支</h3><canvas id="lp-chart-balance" style="max-height:240px;"></canvas></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <h3 style="font-size:14px;color:#555;margin:0;">年次データ</h3>
+      <button id="lp-csv-btn" onclick="lpDownloadCsv()" style="font-size:12px;padding:6px 12px;cursor:pointer;border-radius:6px;border:1px solid #ccc;background:#fff;">CSVダウンロード</button>
     </div>
     <div style="overflow-x:auto;">
-      <table id="lp-table" style="border-collapse:collapse; font-size:12px; min-width:900px; width:100%;">
-        <thead id="lp-thead"></thead>
-        <tbody id="lp-tbody"></tbody>
+      <table id="lp-table" style="border-collapse:collapse;font-size:12px;min-width:1100px;width:100%;">
+        <thead id="lp-thead"></thead><tbody id="lp-tbody"></tbody>
       </table>
     </div>
   `;
@@ -1023,7 +1094,7 @@ function lpBuildOutput() {
 
 function lpFmt(man) {
   if (man >= 10000) return (man / 10000).toFixed(1) + '億円';
-  if (man >= 1)     return Math.round(man) + '万円';
+  if (man >= 1) return Math.round(man) + '万円';
   return Math.round(man * 10000) + '円';
 }
 
@@ -1033,99 +1104,80 @@ let lpLastRows = null;
 function lpUpdateSummary(rows, params) {
   const last = rows[rows.length - 1];
   document.getElementById('lp-s-asset').textContent = lpFmt(last.totalAsset);
-  const fiRow = rows.find(r => r.dividendIncome >= r.livingCost);
+  const fiRow = rows.find(r => (r.dividendIncome + (r.domDividend || 0)) >= r.livingCost);
   document.getElementById('lp-s-fi').textContent = fiRow ? fiRow.age + '歳' : '未達';
   const retireRow = rows.find(r => r.age === params.retireAge);
   document.getElementById('lp-s-div').textContent =
-    retireRow ? lpFmt(retireRow.dividendIncome) + '/年' : '—';
+    retireRow ? lpFmt(retireRow.dividendIncome + (retireRow.domDividend || 0)) + '/年' : '—';
 }
 
 function lpUpdateCharts(rows) {
   const labels = rows.map(r => r.age + '歳');
-
   if (lpChartAsset) lpChartAsset.destroy();
   lpChartAsset = new Chart(document.getElementById('lp-chart-asset'), {
     type: 'bar',
     data: { labels, datasets: [
-      { label: 'SP500',  data: rows.map(r => Math.round(r.sp500Val)),    backgroundColor: '#378ADD', stack: 'a' },
-      { label: 'SCHD',   data: rows.map(r => Math.round(r.schdVal)),     backgroundColor: '#639922', stack: 'a' },
-      { label: '国内',   data: rows.map(r => Math.round(r.domesticVal)), backgroundColor: '#97C459', stack: 'a' },
-      { label: '現金',   data: rows.map(r => Math.round(r.cash)),        backgroundColor: '#888780', stack: 'a' },
+      { label: 'ｲﾝﾃﾞｯｸｽ', data: rows.map(r => Math.round(r.sp500Val)), backgroundColor: '#378ADD', stack: 'a' },
+      { label: '米国ETF', data: rows.map(r => Math.round(r.schdVal)), backgroundColor: '#639922', stack: 'a' },
+      { label: '国内', data: rows.map(r => Math.round(r.domesticVal)), backgroundColor: '#97C459', stack: 'a' },
+      { label: '現金', data: rows.map(r => Math.round(r.cash)), backgroundColor: '#888780', stack: 'a' },
       { label: '退職金', data: rows.map(r => Math.round(r.severanceRemain)), backgroundColor: '#EF9F27', stack: 'a' },
     ]},
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + lpFmt(ctx.raw) } }
-      },
-      scales: {
-        x: { stacked: true, ticks: { font: { size: 10 } } },
-        y: { stacked: true, ticks: { callback: v => lpFmt(v), font: { size: 10 } } }
-      }
+    options: { responsive: true,
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + lpFmt(ctx.raw) } } },
+      scales: { x: { stacked: true, ticks: { font: { size: 10 } } }, y: { stacked: true, ticks: { callback: v => lpFmt(v), font: { size: 10 } } } }
     }
   });
-
   if (lpChartIncome) lpChartIncome.destroy();
   lpChartIncome = new Chart(document.getElementById('lp-chart-income'), {
     type: 'bar',
     data: { labels, datasets: [
-      { label: '給与',      data: rows.map(r => Math.round(r.salary)),         backgroundColor: '#378ADD', stack: 'b' },
-      { label: '配当収入',  data: rows.map(r => Math.round(r.dividendIncome)), backgroundColor: '#639922', stack: 'b' },
-      { label: '年金',      data: rows.map(r => Math.round(r.pension)),        backgroundColor: '#EF9F27', stack: 'b' },
-      { label: 'SP500取崩', data: rows.map(r => Math.round(r.sp500Withdraw)),  backgroundColor: '#888780', stack: 'b' },
+      { label: '給与', data: rows.map(r => Math.round(r.salary)), backgroundColor: '#378ADD', stack: 'b' },
+      { label: 'ETF配当', data: rows.map(r => Math.round(r.dividendIncome)), backgroundColor: '#639922', stack: 'b' },
+      { label: '国内配当', data: rows.map(r => Math.round(r.domDividend || 0)), backgroundColor: '#97C459', stack: 'b' },
+      { label: '年金', data: rows.map(r => Math.round(r.pension)), backgroundColor: '#EF9F27', stack: 'b' },
+      { label: 'ｲﾝﾃﾞｯｸｽ取崩', data: rows.map(r => Math.round(r.sp500Withdraw)), backgroundColor: '#888780', stack: 'b' },
     ]},
-    options: {
-      responsive: true,
+    options: { responsive: true,
       plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } },
-      scales: {
-        x: { stacked: true, ticks: { font: { size: 10 } } },
-        y: { stacked: true, ticks: { callback: v => lpFmt(v), font: { size: 10 } } }
-      }
+      scales: { x: { stacked: true, ticks: { font: { size: 10 } } }, y: { stacked: true, ticks: { callback: v => lpFmt(v), font: { size: 10 } } } }
     }
   });
-
   if (lpChartBalance) lpChartBalance.destroy();
   lpChartBalance = new Chart(document.getElementById('lp-chart-balance'), {
     type: 'bar',
-    data: { labels, datasets: [{
-      label: '投資後収支',
-      data: rows.map(r => Math.round(r.postinvestBalance)),
-      backgroundColor: rows.map(r => r.postinvestBalance >= 0 ? '#1D9E75' : '#E24B4A'),
-    }]},
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { font: { size: 10 } } },
-        y: { ticks: { callback: v => lpFmt(v), font: { size: 10 } } }
-      }
+    data: { labels, datasets: [{ label: '投資後収支', data: rows.map(r => Math.round(r.postinvestBalance)),
+      backgroundColor: rows.map(r => r.postinvestBalance >= 0 ? '#1D9E75' : '#E24B4A') }] },
+    options: { responsive: true, plugins: { legend: { display: false } },
+      scales: { x: { ticks: { font: { size: 10 } } }, y: { ticks: { callback: v => lpFmt(v), font: { size: 10 } } } }
     }
   });
 }
 
 const LP_TABLE_COLS = [
-  { key: 'age',               label: '年齢' },
-  { key: 'salary',            label: '給与' },
-  { key: 'wifeIncome',        label: '妻入金' },
-  { key: 'dividendIncome',    label: '配当収入' },
-  { key: 'yoc',               label: 'YOC(%)' },
-  { key: 'sp500Withdraw',     label: 'SP500取崩' },
-  { key: 'pension',           label: '年金' },
-  { key: 'totalIncome',       label: '収入合計' },
-  { key: 'livingCost',        label: '生活費' },
-  { key: 'investSp500',       label: 'SP500投資' },
-  { key: 'investSchd',        label: 'SCHD投資' },
-  { key: 'investDomestic',    label: '国内投資' },
-  { key: 'totalInvest',       label: '投資合計' },
-  { key: 'preinvestBalance',  label: '投資前収支' },
+  { key: 'age', label: '年齢' },
+  { key: 'salary', label: '給与(税引後)' },
+  { key: 'wifeIncome', label: '配偶者入金' },
+  { key: 'dividendIncome', label: 'ETF配当' },
+  { key: 'domDividend', label: '国内配当' },
+  { key: 'yoc', label: 'ETF YOC(%)' },
+  { key: 'sp500Withdraw', label: 'ｲﾝﾃﾞｯｸｽ取崩' },
+  { key: 'pension', label: '年金' },
+  { key: 'totalIncome', label: '収入合計' },
+  { key: 'livingCost', label: '生活費' },
+  { key: 'tuition', label: '学費' },
+  { key: 'investSp500', label: 'ｲﾝﾃﾞｯｸｽ投資' },
+  { key: 'investSchd', label: 'ETF投資' },
+  { key: 'investDomestic', label: '国内投資' },
+  { key: 'totalInvest', label: '投資合計' },
+  { key: 'preinvestBalance', label: '投資前収支' },
   { key: 'postinvestBalance', label: '投資後収支' },
-  { key: 'cash',              label: '現金' },
-  { key: 'sp500Val',          label: 'SP500評価' },
-  { key: 'schdVal',           label: 'SCHD評価' },
-  { key: 'domesticVal',       label: '国内評価' },
-  { key: 'severanceRemain',   label: '退職金残' },
-  { key: 'totalAsset',        label: '総資産' },
+  { key: 'cash', label: '現金' },
+  { key: 'sp500Val', label: 'ｲﾝﾃﾞｯｸｽ評価' },
+  { key: 'schdVal', label: 'ETF評価' },
+  { key: 'domesticVal', label: '国内評価' },
+  { key: 'severanceRemain', label: '退職金残' },
+  { key: 'totalAsset', label: '総資産' },
 ];
 
 function lpUpdateTable(rows, params, fiAge) {
@@ -1133,20 +1185,18 @@ function lpUpdateTable(rows, params, fiAge) {
   thead.innerHTML = '<tr>' + LP_TABLE_COLS.map(c => `<th>${c.label}</th>`).join('') + '</tr>';
   const tbody = document.getElementById('lp-tbody');
   tbody.innerHTML = rows.map(r => {
-    const isFi      = fiAge && r.age === fiAge;
-    const isRetire  = r.age === params.retireAge;
+    const isFi = fiAge && r.age === fiAge;
+    const isRetire = r.age === params.retireAge;
     const isWithdraw = r.age === params.sp500WithdrawStartAge;
     const bg = isFi ? '#E1F5EE' : '';
     const cells = LP_TABLE_COLS.map(c => {
-      const val = r[c.key];
-      let text = (c.key === 'yoc') ? val.toFixed(2)
-              : (c.key === 'age') ? val
-              : val.toFixed(1);
+      const val = r[c.key] || 0;
+      let text = (c.key === 'yoc') ? val.toFixed(2) : (c.key === 'age') ? val : val.toFixed(1);
       let badge = '';
       if (c.key === 'age') {
-        if (isRetire)   badge += ' <span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:1px 4px;border-radius:3px;">退職</span>';
+        if (isRetire) badge += ' <span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:1px 4px;border-radius:3px;">退職</span>';
         if (isWithdraw) badge += ' <span style="font-size:10px;background:#E6F1FB;color:#185FA5;padding:1px 4px;border-radius:3px;">取崩開始</span>';
-        if (isFi)       badge += ' <span style="font-size:10px;background:#E1F5EE;color:#0F6E56;padding:1px 4px;border-radius:3px;">FI</span>';
+        if (isFi) badge += ' <span style="font-size:10px;background:#E1F5EE;color:#0F6E56;padding:1px 4px;border-radius:3px;">FI</span>';
       }
       const color = (c.key === 'preinvestBalance' || c.key === 'postinvestBalance') && val < 0 ? 'color:#E24B4A;' : '';
       return `<td style="${color}">${text}${badge}</td>`;
@@ -1158,39 +1208,29 @@ function lpUpdateTable(rows, params, fiAge) {
 function lpDownloadCsv() {
   if (!lpLastRows) return;
   const header = LP_TABLE_COLS.map(c => c.label).join(',');
-  const body = lpLastRows.map(r =>
-    LP_TABLE_COLS.map(c => {
-      const v = r[c.key];
-      return (c.key === 'yoc') ? v.toFixed(2) : (c.key === 'age') ? v : v.toFixed(1);
-    }).join(',')
-  ).join('\n');
+  const body = lpLastRows.map(r => LP_TABLE_COLS.map(c => {
+    const v = r[c.key] || 0;
+    return (c.key === 'yoc') ? v.toFixed(2) : (c.key === 'age') ? v : v.toFixed(1);
+  }).join(',')).join('\n');
   const blob = new Blob([header + '\n' + body], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'lifeplan_simulation.csv';
-  a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'lifeplan_simulation.csv'; a.click();
 }
 
 function lpShare() {
   const last = lpLastRows ? lpLastRows[lpLastRows.length - 1] : null;
-  const fi   = lpLastRows ? lpLastRows.find(r => r.dividendIncome >= r.livingCost) : null;
+  const fi = lpLastRows ? lpLastRows.find(r => (r.dividendIncome + (r.domDividend || 0)) >= r.livingCost) : null;
   const text = last
     ? `【ライフプランシミュレーション】\n最終総資産: ${lpFmt(last.totalAsset)}\nFI達成年齢: ${fi ? fi.age + '歳' : '未達'}\n${location.href}`
     : location.href;
-  if (navigator.share) {
-    navigator.share({ text }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(text).then(() => {
-      if (typeof showToast === 'function') showToast('クリップボードにコピーしました');
-      else alert('クリップボードにコピーしました');
-    });
-  }
+  if (navigator.share) { navigator.share({ text }).catch(() => {}); }
+  else { navigator.clipboard.writeText(text).then(() => { if (typeof showToast === 'function') showToast('クリップボードにコピーしました'); else alert('クリップボードにコピーしました'); }); }
 }
 
 function lpUpdateOutput(rows) {
   lpLastRows = rows;
   const params = lpGetParams();
-  const fiRow = rows.find(r => r.dividendIncome >= r.livingCost);
+  const fiRow = rows.find(r => (r.dividendIncome + (r.domDividend || 0)) >= r.livingCost);
   const fiAge = fiRow ? fiRow.age : null;
   lpUpdateSummary(rows, params);
   lpUpdateCharts(rows);
@@ -1203,14 +1243,9 @@ function lpRecalc() {
   lpUpdateOutput(rows);
 }
 
-// 初期化
 (function lpInit() {
-  // ダークモード時の Chart.js デフォルト
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    if (typeof Chart !== 'undefined') {
-      Chart.defaults.color = '#aaa';
-      Chart.defaults.borderColor = '#444';
-    }
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches && typeof Chart !== 'undefined') {
+    Chart.defaults.color = '#aaa'; Chart.defaults.borderColor = '#444';
   }
   lpBuildPanel();
   lpBuildOutput();
