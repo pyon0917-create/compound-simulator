@@ -1448,29 +1448,37 @@ function lpUpdateCharts(rows) {
 }
 
 const LP_TABLE_COLS = [
+  // ①基本
   { key: 'age', label: '年齢' },
+  // ②収入
   { key: 'salary', label: '給与(税引後)' },
-  { key: 'wifeIncome', label: '配偶者入金' },
-  { key: 'dividendIncome', label: 'ETF配当' },
-  { key: 'domDividend', label: '国内配当' },
-  { key: 'yoc', label: 'ETF YOC(%)' },
-  { key: 'sp500Withdraw', label: 'ｲﾝﾃﾞｯｸｽ取崩' },
+  { key: 'wifeIncome', label: '配偶者収入' },
+  { key: 'dividendIncome', label: '（内）ETF配当' },
+  { key: 'domDividend', label: '（内）国内配当' },
+  { key: '_divTotal', label: '配当合計', fn: r => (r.dividendIncome || 0) + (r.domDividend || 0) },
+  { key: 'sp500Withdraw', label: '取崩収入' },
   { key: 'pension', label: '年金' },
   { key: 'totalIncome', label: '収入合計' },
-  { key: 'livingCost', label: '生活費' },
-  { key: 'tuition', label: '学費' },
+  // ③支出
+  { key: 'livingCost', label: '生活費合計' },
+  { key: 'tuition', label: '（内）学費' },
+  // ④収支
+  { key: 'preinvestBalance', label: '収支（投資前）' },
+  { key: 'totalInvest', label: '投資合計' },
+  { key: 'postinvestBalance', label: '収支（投資後）' },
+  // ⑤投資内訳
   { key: 'investSp500', label: 'ｲﾝﾃﾞｯｸｽ投資' },
   { key: 'investSchd', label: 'ETF投資' },
   { key: 'investDomestic', label: '国内投資' },
-  { key: 'totalInvest', label: '投資合計' },
-  { key: 'preinvestBalance', label: '投資前収支' },
-  { key: 'postinvestBalance', label: '投資後収支' },
+  // ⑥資産残高
   { key: 'cash', label: '現金' },
   { key: 'sp500Val', label: 'ｲﾝﾃﾞｯｸｽ評価' },
   { key: 'schdVal', label: 'ETF評価' },
   { key: 'domesticVal', label: '国内評価' },
   { key: 'severanceRemain', label: '退職金残' },
   { key: 'totalAsset', label: '総資産' },
+  // ⑦参考
+  { key: 'yoc', label: 'ETF YOC(%)' },
 ];
 
 function lpUpdateTable(rows, params, fiAge) {
@@ -1483,7 +1491,7 @@ function lpUpdateTable(rows, params, fiAge) {
     const isWithdraw = r.sp500Withdraw > 0 && (r.age === rows[0].age || rows.find(x => x.age === r.age - 1)?.sp500Withdraw === 0);
     const bg = isFi ? '#E1F5EE' : '';
     const cells = LP_TABLE_COLS.map(c => {
-      const val = r[c.key] || 0;
+      const val = c.fn ? c.fn(r) : (r[c.key] || 0);
       let text = (c.key === 'yoc') ? val.toFixed(2) : (c.key === 'age') ? val : val.toFixed(1);
       let badge = '';
       if (c.key === 'age') {
@@ -1502,7 +1510,7 @@ function lpDownloadCsv() {
   if (!lpLastRows) return;
   const header = LP_TABLE_COLS.map(c => c.label).join(',');
   const body = lpLastRows.map(r => LP_TABLE_COLS.map(c => {
-    const v = r[c.key] || 0;
+    const v = c.fn ? c.fn(r) : (r[c.key] || 0);
     return (c.key === 'yoc') ? v.toFixed(2) : (c.key === 'age') ? v : v.toFixed(1);
   }).join(',')).join('\n');
   const blob = new Blob([header + '\n' + body], { type: 'text/csv' });
