@@ -941,7 +941,7 @@ function calcLifePlan(p) {
   // NISA枠使用額追跡
   let selfNisaUsed = (p.sp500NisaVal||0) + (p.schdNisaVal||0) + (p.domNisaVal||0);
   let spouseNisaUsed = (p.sp500NisaValSp||0) + (p.schdNisaValSp||0) + (p.domNisaValSp||0);
-  let childNisaUsed = children.map(c => c.childNisaInit || 0);
+  let childNisaUsed = children.map(() => 0);
   let childNisaVal = children.map(() => 0);
   const childNisaRate = p.childNisaRate || 0.07;
 
@@ -1724,7 +1724,14 @@ function lpLoadFromUrl() {
     lpRenderPhases();
   }
   if (params.has('children')) {
-    try { lpChildren = JSON.parse(params.get('children')); } catch(e) {}
+    try {
+      lpChildren = JSON.parse(params.get('children')).map(c => ({
+        age: c.age || 0,
+        useChildNisa: !!c.useChildNisa,
+        childNisaAnnual: c.childNisaAnnual || 120,
+        childNisaInit: 0,
+      }));
+    } catch(e) {}
     lpRenderChildren();
   }
   return loaded;
