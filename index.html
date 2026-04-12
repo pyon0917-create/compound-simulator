@@ -545,7 +545,7 @@
         <p style="font-weight:600;">Q. NISAの残枠はどこで確認できますか？</p>
         <p style="margin-bottom:12px;">A. サマリーカード（グラフ上部）にNISA残枠が常時表示されています。</p>
         <p style="font-weight:600;">Q. 子どもの学費はどう計算されますか？</p>
-        <p style="margin-bottom:12px;">A. 家族設定で子どもの生まれ年を入力すると、年齢に応じた学費（幼稚園〜大学）が自動でシミュレーションに加算されます。</p>
+        <p style="margin-bottom:12px;">A. 家族設定で子どもの年齢を入力すると、年齢に応じた学費（幼稚園〜大学）が自動で加算されます。こどもNISAを有効にすると、インデックスファンドとして積み立て・複利成長させ、大学4年間（19〜22歳）の学費に非課税で自動充当されます。不足分は現金から補います。</p>
         <p style="font-weight:600;">Q. 設定を保存したい</p>
         <p style="margin-bottom:12px;">A. 「URLをコピー」ボタンでURLを保存してください。アカウント登録は不要です。</p>
         <p style="font-weight:600;">Q. NISA口座と特定口座はどこで確認できますか？</p>
@@ -929,6 +929,8 @@ function calcLifePlan(p) {
   let selfNisaUsed = (p.sp500NisaVal||0) + (p.schdNisaVal||0) + (p.domNisaVal||0);
   let spouseNisaUsed = (p.sp500NisaValSp||0) + (p.schdNisaValSp||0) + (p.domNisaValSp||0);
   let childNisaUsed = children.map(c => c.childNisaInit || 0);
+  let childNisaVal = children.map(() => 0);
+  const childNisaRate = p.childNisaRate || 0.07;
 
   function allocInvest(inv, age) {
     const year = CURRENT_YEAR + (age - p.startAge);
@@ -967,6 +969,17 @@ function calcLifePlan(p) {
       if (ca >= 18) cc = Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
       else if (year >= 2027 && ca >= 0) cc = c.childNisaAnnual || 120;
       const u = Math.min(rem, cc); childNisaUsed[ci] += u; rem -= u;
+    }
+    // こどもNISA: 別管理で積立（18歳未満・2027年以降）
+    for (let ci = 0; ci < children.length; ci++) {
+      const c = children[ci];
+      if (!c.useChildNisa) continue;
+      const ca = c.age + (age - p.startAge);
+      if (year >= 2027 && ca >= 0 && ca < 18) {
+        childNisaVal[ci] = childNisaVal[ci] * (1 + childNisaRate) + (c.childNisaAnnual || 120);
+      } else if (ca >= 18) {
+        childNisaVal[ci] = childNisaVal[ci] * (1 + childNisaRate);
+      }
     }
     return { iSp: sp.n + sp.t, iSc: sc.n + sc.t, iDo: dm.n + dm.t };
   }
@@ -1021,6 +1034,7 @@ function calcLifePlan(p) {
     sp500Nisa: sp500N, sp500Tok: sp500T, schdNisa: schdN, schdTok: schdT,
     domNisa: domN, domTok: domT,
     severanceRemain: 0, totalAsset: initCash + initSp500 + initSchd + initDom,
+    childNisaVal: [...childNisaVal], childNisaTuitionCover: 0,
     selfNisaUsed, spouseNisaUsed, childNisaUsed: [...childNisaUsed],
   });
 
@@ -1098,9 +1112,24 @@ function calcLifePlan(p) {
     const postinv = preinv - totInv;
 
     let cashNew = prevCash + postinv;
+
+    // こどもNISAから大学学費を充当（19〜22歳）
+    let childNisaTuitionCover = 0;
+    for (let ci = 0; ci < children.length; ci++) {
+      const ca = children[ci].age + (age - p.startAge);
+      if (ca >= 19 && ca <= 22) {
+        const uniCost = lpCalcTuitionForAge(ca, tuitionCosts);
+        const fromNisa = Math.min(childNisaVal[ci], uniCost);
+        childNisaVal[ci] -= fromNisa;
+        childNisaTuitionCover += fromNisa;
+      }
+    }
+    cashNew += childNisaTuitionCover;
+
     if (cashCap > 0 && cashNew > cashCap) cashNew = cashCap;
     const sevRem = age === p.retireAge ? p.severance : prevSev;
-    const totalAsset = cashNew + newSp500 + newSchd + newDom + sevRem;
+    const childNisaTotal = childNisaVal.reduce((s, v) => s + v, 0);
+    const totalAsset = cashNew + newSp500 + newSchd + newDom + sevRem + childNisaTotal;
 
     rows.push({
       age, salary: salNow, wifeIncome: wifeNow,
@@ -1113,6 +1142,7 @@ function calcLifePlan(p) {
       sp500Nisa: sp500N, sp500Tok: sp500T, schdNisa: schdN, schdTok: schdT,
       domNisa: domN, domTok: domT,
       severanceRemain: sevRem, totalAsset,
+      childNisaVal: [...childNisaVal], childNisaTuitionCover,
       selfNisaUsed, spouseNisaUsed, childNisaUsed: [...childNisaUsed],
     });
 
@@ -1170,6 +1200,7 @@ const LP_FIELDS = [
     { key: 'sp500WithdrawThreshold', label: 'インデックス取崩 開始評価額', min: 0, max: 50000, step: 10, def: 0, unit: '万円' },
     { key: 'sp500WithdrawRate', label: 'インデックス取崩率', min: 0, max: 10, step: 0.1, def: 4.0, unit: '%' },
     { key: 'cashKeep', label: '現金キャップ', min: 0, max: 3000, step: 100, def: 0, unit: '万円' },
+    { key: 'childNisaRate', label: 'こどもNISA 期待年利', min: 0, max: 15, step: 0.1, def: 7.0, unit: '%' },
   ]},
   { title: '口座別評価額（自分）', id: 'lp-nisa-self', fields: [
     { key: 'sp500NisaVal', label: 'ｲﾝﾃﾞｯｸｽ（NISA口座）', min: 0, max: 50000, step: 10, def: 0, unit: '万円' },
@@ -1372,6 +1403,7 @@ function lpGetParams() {
     livingCost1: v('livingCost1'), livingCostChangeAge: v('livingCostChangeAge'),
     livingCost2: v('livingCost2'), livingCostRetired: v('livingCostRetired'),
     inflationRate: v('inflationRate') / 100,
+    childNisaRate: v('childNisaRate') / 100,
     children: lpChildren, tuitionCosts: lpTuitionCosts, phases: lpPhases,
     initCash: v('initCash'),
     initEtfDiv: v('initEtfDiv'), initDomDiv: v('initDomDiv'),
@@ -1471,11 +1503,12 @@ function lpUpdateSummary(rows, params) {
     children.forEach((c, i) => {
       if (!c.useChildNisa) return;
       const used = last.childNisaUsed[i] || 0;
+      const val = last.childNisaVal ? (last.childNisaVal[i] || 0) : 0;
       const childFinalAge = c.age + (params.endAge - params.startAge);
       const remaining = childFinalAge >= 18 ? Math.max(0, NISA_LIMIT - used) : '—';
       html += `<div class="lp-card" style="margin-bottom:8px;padding:8px 12px;">
-        <div class="lp-card-label">子ども${i+1} NISA累積</div>
-        <div style="font-size:14px;font-weight:500;">${Math.round(used)}万円 / 残枠: ${typeof remaining === 'number' ? remaining + '万円' : remaining}</div>
+        <div class="lp-card-label">子ども${i+1} こどもNISA</div>
+        <div style="font-size:14px;font-weight:500;">評価額: ${Math.round(val)}万円 / 累積投資: ${Math.round(used)}万円</div>
       </div>`;
     });
     childSumEl.innerHTML = html;
