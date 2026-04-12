@@ -933,37 +933,37 @@ function lpSwitchTab(name) {
 // 動的データ
 let lpChildren = [];
 let lpPhases = [
-  { startAge: 35, endAge: 40, sp500: 120, schd: 240, domestic: 60 },
-  { startAge: 40, endAge: 60, sp500: 0,   schd: 180, domestic: 180 },
+  { startAge: 18, endAge: 40, sp500: 0, schd: 0, domestic: 0 },
+  { startAge: 40, endAge: 60, sp500: 0, schd: 0, domestic: 0 },
 ];
 let lpTuitionCosts = LP_TUITION_DEFAULTS.map(t => ({ ...t }));
 
 const LP_FIELDS = [
   { title: '基本設定', fields: [
-    { key: 'startAge', label: '開始年齢', min: 20, max: 60, step: 1, def: 35, unit: '歳' },
-    { key: 'endAge', label: '目標年齢', min: 50, max: 90, step: 1, def: 80, unit: '歳' },
+    { key: 'startAge', label: '開始年齢', min: 15, max: 60, step: 1, def: 18, unit: '歳' },
+    { key: 'endAge', label: 'シミュレーション終了年齢', min: 50, max: 90, step: 1, def: 80, unit: '歳' },
     { key: 'retireAge', label: '退職年齢', min: 40, max: 70, step: 1, def: 60, unit: '歳' },
   ]},
   { title: '家族設定', id: 'lp-family-section', fields: [
-    { key: 'spouseAge', label: '配偶者の年齢', min: 20, max: 80, step: 1, def: 33, unit: '歳' },
+    { key: 'spouseAge', label: '配偶者の年齢', min: 15, max: 80, step: 1, def: 18, unit: '歳' },
   ]},
   { title: '収入設定', fields: [
-    { key: 'salary', label: '給与収入（手取り）', min: 0, max: 3000, step: 10, def: 800, unit: '万円/年' },
-    { key: 'salaryGrowthRate', label: '給与昇給率', min: 0, max: 5, step: 0.1, def: 1.0, unit: '%/年' },
-    { key: 'wifeIncome', label: '配偶者入金', min: 0, max: 500, step: 10, def: 156, unit: '万円/年' },
-    { key: 'severance', label: '退職金', min: 0, max: 5000, step: 100, def: 2500, unit: '万円' },
-    { key: 'pension', label: '年金収入', min: 0, max: 500, step: 10, def: 266, unit: '万円/年' },
+    { key: 'salary', label: '給与収入（手取り）', min: 0, max: 3000, step: 10, def: 0, unit: '万円/年' },
+    { key: 'salaryGrowthRate', label: '給与昇給率', min: 0, max: 5, step: 0.1, def: 0, unit: '%/年' },
+    { key: 'wifeIncome', label: '配偶者入金', min: 0, max: 500, step: 10, def: 0, unit: '万円/年' },
+    { key: 'severance', label: '退職金', min: 0, max: 5000, step: 100, def: 0, unit: '万円' },
+    { key: 'pension', label: '年金収入', min: 0, max: 500, step: 10, def: 0, unit: '万円/年' },
   ]},
   { title: '投資設定', fields: [
     { key: 'sp500Rate', label: 'インデックスファンド 期待年利', min: 1, max: 15, step: 0.1, def: 7.0, unit: '%' },
-    { key: 'schdInitialYoc', label: '米国高配当株ETF 初期YOC', min: 0.5, max: 10, step: 0.01, def: 2.89, unit: '%' },
-    { key: 'yocGrowthRate', label: 'ETF YOC 年間上昇率', min: 0, max: 10, step: 0.1, def: 5.0, unit: '%' },
+    { key: 'schdInitialYoc', label: '米国高配当株ETF 初期YOC', min: 0, max: 10, step: 0.01, def: 0, unit: '%' },
+    { key: 'yocGrowthRate', label: 'ETF YOC 年間上昇率', min: 0, max: 10, step: 0.1, def: 0, unit: '%' },
     { key: 'schdGrowthRate', label: '米国高配当株ETF 値上り率', min: 0, max: 15, step: 0.1, def: 5.0, unit: '%' },
-    { key: 'domYoc', label: '国内高配当 取得時利回り', min: 0, max: 10, step: 0.1, def: 3.0, unit: '%' },
-    { key: 'domYocGrowth', label: '国内高配当 増配率', min: 0, max: 10, step: 0.1, def: 3.0, unit: '%' },
+    { key: 'domYoc', label: '国内高配当 取得時利回り', min: 0, max: 10, step: 0.1, def: 0, unit: '%' },
+    { key: 'domYocGrowth', label: '国内高配当 増配率', min: 0, max: 10, step: 0.1, def: 0, unit: '%' },
     { key: 'sp500WithdrawStartAge', label: 'インデックス取崩 開始年齢', min: 40, max: 75, step: 1, def: 52, unit: '歳' },
     { key: 'sp500WithdrawRate', label: 'インデックス取崩率', min: 0, max: 10, step: 0.1, def: 4.0, unit: '%' },
-    { key: 'cashKeep', label: '現金キャップ', min: 0, max: 3000, step: 100, def: 1000, unit: '万円' },
+    { key: 'cashKeep', label: '現金キャップ', min: 0, max: 3000, step: 100, def: 0, unit: '万円' },
   ]},
   { title: 'NISA設定（自分）', id: 'lp-nisa-self', fields: [
     { key: 'nisaSelfSp500', label: 'ｲﾝﾃﾞｯｸｽ NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
@@ -976,11 +976,11 @@ const LP_FIELDS = [
     { key: 'nisaSpouseDom', label: '国内 NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
   ]},
   { title: '生活費設定', fields: [
-    { key: 'livingCost1', label: '生活費(変化年齢前)', min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
-    { key: 'livingCostChangeAge', label: '生活費 変化年齢', min: 35, max: 70, step: 1, def: 45, unit: '歳' },
-    { key: 'livingCost2', label: '生活費(変化年齢〜退職)', min: 0, max: 2000, step: 50, def: 700, unit: '万円/年' },
-    { key: 'livingCostRetired', label: '退職後 生活費', min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
-    { key: 'inflationRate', label: '生活費インフレ率', min: 0, max: 5, step: 0.1, def: 1.0, unit: '%/年' },
+    { key: 'livingCost1', label: '生活費(変化年齢前)', min: 0, max: 2000, step: 50, def: 0, unit: '万円/年' },
+    { key: 'livingCostChangeAge', label: '生活費 変化年齢', min: 15, max: 70, step: 1, def: 45, unit: '歳' },
+    { key: 'livingCost2', label: '生活費(変化年齢〜退職)', min: 0, max: 2000, step: 50, def: 0, unit: '万円/年' },
+    { key: 'livingCostRetired', label: '退職後 生活費', min: 0, max: 2000, step: 50, def: 0, unit: '万円/年' },
+    { key: 'inflationRate', label: '生活費インフレ率', min: 0, max: 5, step: 0.1, def: 0, unit: '%/年' },
   ]},
 ];
 
@@ -1140,7 +1140,7 @@ function lpGetParams() {
     livingCost2: v('livingCost2'), livingCostRetired: v('livingCostRetired'),
     inflationRate: v('inflationRate') / 100,
     children: lpChildren, tuitionCosts: lpTuitionCosts, phases: lpPhases,
-    initCash: 195, initSp500: 506.3, initSchd: 489.9, initDomestic: 132, initDiv: 9.0,
+    initCash: 0, initSp500: 0, initSchd: 0, initDomestic: 0, initDiv: 0,
   };
   lpUpdateNisaWarnings(params);
   return params;
