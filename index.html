@@ -1321,7 +1321,7 @@ function lpLinkTuition(i) {
 
 // ===== 子ども管理 =====
 function lpAddChild() {
-  lpChildren.push({ age: 0, useChildNisa: false, childNisaAnnual: 120, childNisaInit: 0 });
+  lpChildren.push({ age: 0, useChildNisa: false, childNisaAnnual: 120 });
   lpRenderChildren();
   lpRecalc();
 }
@@ -1729,7 +1729,6 @@ function lpLoadFromUrl() {
         age: c.age || 0,
         useChildNisa: !!c.useChildNisa,
         childNisaAnnual: c.childNisaAnnual || 120,
-        childNisaInit: 0,
       }));
     } catch(e) {}
     lpRenderChildren();
@@ -1746,7 +1745,14 @@ function lpBuildUrlString() {
   }
   for (let i = 0; i < lpTuitionCosts.length; i++) params.set('tc' + i, lpTuitionCosts[i].cost);
   params.set('phases', JSON.stringify(lpPhases));
-  if (lpChildren.length > 0) params.set('children', JSON.stringify(lpChildren));
+  if (lpChildren.length > 0) {
+    const cleanChildren = lpChildren.map(c => ({
+      age: c.age || 0,
+      useChildNisa: !!c.useChildNisa,
+      childNisaAnnual: c.childNisaAnnual || 120,
+    }));
+    params.set('children', JSON.stringify(cleanChildren));
+  }
   return location.origin + location.pathname + '?' + params.toString();
 }
 
