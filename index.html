@@ -489,6 +489,10 @@
       <div class="mn-body">
         <p style="font-weight:600;margin-bottom:6px;">【基本設定】</p>
         <table class="mn-tbl"><tr><td><strong>現在年齢</strong></td><td>シミュレーション開始時の自分の年齢</td></tr><tr><td><strong>給与（税引後）</strong></td><td>手取りの年収</td></tr><tr><td><strong>配偶者収入</strong></td><td>配偶者の手取り年収。いない場合は0</td></tr><tr><td><strong>退職年齢</strong></td><td>給与収入が0になる年齢</td></tr></table>
+        <p style="font-weight:600;margin:12px 0 6px;">【家族設定・こどもNISA】</p>
+        <p style="margin-bottom:8px;">こどもNISA（チェックボックスをONにすると有効）：子どもごとにこどもNISAを設定できます。</p>
+        <table class="mn-tbl"><tr><td><strong>こどもNISA 期待年利</strong></td><td>こどもNISAをインデックスファンドとして運用する際の期待年利。デフォルト7%</td></tr><tr><td><strong>こどもNISA 年間積立額</strong></td><td>投資フェーズの各フェーズで子どもごとに入力します</td></tr></table>
+        <p style="margin-top:8px;font-size:12px;">・2027年以降かつ子どもが18歳未満の期間のみ積立が有効です<br>・積立額は親の収支から支出されます（投資フェーズで入力）<br>・評価額は毎年「期待年利」で複利成長します<br>・子どもが19〜22歳（大学4年間）に学費として自動取り崩しされます（非課税）<br>・こどもNISA評価額が学費に不足する場合は現金から補います<br>・18歳以降は通常のNISA口座に移行し、残額は引き続き運用されます</p>
         <p style="font-weight:600;margin:12px 0 6px;">【生活費設定】</p>
         <table class="mn-tbl"><tr><td><strong>生活費（変化年齢前）</strong></td><td>現在の年間生活費</td></tr><tr><td><strong>生活費 変化年齢</strong></td><td>生活費が変わる年齢（例：子どもの独立）</td></tr><tr><td><strong>生活費（変化年齢〜退職）</strong></td><td>変化年齢以降の年間生活費</td></tr><tr><td><strong>退職後 生活費</strong></td><td>退職後の年間生活費</td></tr><tr><td><strong>生活費インフレ率</strong></td><td>毎年の生活費上昇率。1〜2%が一般的</td></tr></table>
         <p style="font-weight:600;margin:12px 0 6px;">【初期保有資産（口座別評価額）】</p>
@@ -505,6 +509,7 @@
         <p style="margin-bottom:4px;font-size:12px;">例：35〜40歳のフェーズ</p>
         <table class="mn-tbl" style="margin-bottom:8px;"><tr><td></td><td style="text-align:center;font-weight:600;">NISA口座</td><td style="text-align:center;font-weight:600;">特定口座</td></tr><tr><td>インデックス</td><td style="text-align:center;">120万</td><td style="text-align:center;">0万</td></tr><tr><td>米国ETF</td><td style="text-align:center;">240万</td><td style="text-align:center;">0万</td></tr><tr><td>国内株</td><td style="text-align:center;">0万</td><td style="text-align:center;">60万</td></tr></table>
         <p style="font-size:12px;">・NISA口座への入力額がNISA残枠を超えた場合、超過分は自動的に特定口座に振り替えられます<br>・国内株をはじめから特定口座で積み立てるなど、資産ごとに口座を選択できます<br>・フェーズは「＋フェーズを追加」ボタンで複数設定できます</p>
+        <p style="margin-top:8px;font-size:12px;"><strong>こどもNISA 子ども1/2…：</strong>家族設定でこどもNISAをONにした子どもごとに入力欄が表示されます。入力した年間積立額は親の収支から支出され、こどもNISA口座（インデックスファンド・期待年利は専用設定値）で運用されます。子どもが19〜22歳の大学4年間に学費として自動的に取り崩されます。</p>
       </div>
     </div>
     <div class="mn-section">
@@ -519,7 +524,9 @@
         <p style="margin-bottom:8px;">口座の種類によって課税ルールが異なります。</p>
         <table class="mn-tbl"><tr><td><strong>NISA口座の配当・取崩し収入</strong></td><td>完全非課税（税金なし）</td></tr><tr><td><strong>特定口座の配当・取崩し収入</strong></td><td>約20.315%課税（所得税＋住民税＋復興特別所得税）</td></tr></table>
         <p style="font-weight:600;margin:12px 0 6px;">【取り崩し時の口座順序】</p>
-        <p>インデックスを取り崩す際は、NISA口座から優先して取り崩します。NISA口座がなくなった後に特定口座から取り崩します。これにより税負担を最小化できます。</p>
+        <p style="margin-bottom:8px;">インデックスを取り崩す際は、NISA口座から優先して取り崩します。NISA口座がなくなった後に特定口座から取り崩します。これにより税負担を最小化できます。</p>
+        <p style="font-weight:600;margin:12px 0 6px;">【こどもNISAの計算】</p>
+        <table class="mn-tbl"><tr><td><strong>積立フェーズ</strong></td><td>2027年以降・18歳未満の期間、投資フェーズで設定した年間額を積立。毎年「こどもNISA期待年利」で複利成長</td></tr><tr><td><strong>成長のみ</strong></td><td>18歳になった年は積立停止・大学入学（19歳）まで成長のみ継続</td></tr><tr><td><strong>取崩しフェーズ</strong></td><td>19〜22歳の4年間、大学学費（デフォルト150万円/年）を評価額から優先充当（非課税）</td></tr><tr><td><strong>不足時</strong></td><td>こどもNISA評価額が学費に不足する場合は現金から補う</td></tr><tr><td><strong>18歳以降</strong></td><td>残った評価額は通常NISA口座として引き続き運用</td></tr></table>
       </div>
     </div>
     <div class="mn-section">
@@ -553,7 +560,13 @@
         <p style="font-weight:600;">Q. 国内株をNISA口座で持っていない場合は？</p>
         <p style="margin-bottom:12px;">A. 投資フェーズの国内株「NISA口座」を0、「特定口座」に投資額を入力してください。配当は全額課税（約20.315%）で計算されます。</p>
         <p style="font-weight:600;">Q. NISA残枠を超えて投資した場合は？</p>
-        <p>A. NISA口座への入力額がNISA残枠を超えると、超過分は自動的に特定口座への投資として計算されます。</p>
+        <p style="margin-bottom:12px;">A. NISA口座への入力額がNISA残枠を超えると、超過分は自動的に特定口座への投資として計算されます。</p>
+        <p style="font-weight:600;">Q. こどもNISAの積立額はどこから出ますか？</p>
+        <p style="margin-bottom:12px;">A. 親の収支から支出されます。投資フェーズの各フェーズに「こどもNISA 子ども1」などの入力欄があります。家族設定でこどもNISAをONにすると表示されます。</p>
+        <p style="font-weight:600;">Q. こどもNISAで大学学費が足りない場合はどうなりますか？</p>
+        <p style="margin-bottom:12px;">A. 不足分は自動的に現金から補われます。年次テーブルで現金の動きを確認できます。</p>
+        <p style="font-weight:600;">Q. こどもNISAの利回りはどこで設定しますか？</p>
+        <p>A. 投資設定セクションの「こどもNISA 期待年利」で設定できます。デフォルトは7%です。</p>
       </div>
     </div>
   </div>
