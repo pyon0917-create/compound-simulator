@@ -953,7 +953,7 @@ function calcLifePlan(p) {
       if (c.useChildNisa) {
         const ca = c.age + (age - p.startAge);
         if (ca >= 18) nisaRem += Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
-        else if (year >= 2027 && ca >= 0) nisaRem += (c.childNisaAnnual || 120);
+        else if (year >= 2027 && ca >= 0) nisaRem += (c.childNisaAnnual ?? 120);
       }
     }
     function alloc1(nisaIn, tokIn) {
@@ -980,7 +980,7 @@ function calcLifePlan(p) {
       const ca = c.age + (age - p.startAge);
       let cc = 0;
       if (ca >= 18) cc = Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
-      else if (year >= 2027 && ca >= 0) cc = c.childNisaAnnual || 120;
+      else if (year >= 2027 && ca >= 0) cc = c.childNisaAnnual ?? 120;
       const u = Math.min(rem, cc); childNisaUsed[ci] += u; rem -= u;
     }
     // こどもNISA: 別管理で積立（18歳未満・2027年以降）
@@ -989,7 +989,7 @@ function calcLifePlan(p) {
       if (!c.useChildNisa) continue;
       const ca = c.age + (age - p.startAge);
       if (year >= 2027 && ca >= 0 && ca < 18) {
-        childNisaVal[ci] = childNisaVal[ci] * (1 + childNisaRate) + (c.childNisaAnnual || 120);
+        childNisaVal[ci] = childNisaVal[ci] * (1 + childNisaRate) + (c.childNisaAnnual ?? 120);
       } else if (ca >= 18) {
         childNisaVal[ci] = childNisaVal[ci] * (1 + childNisaRate);
       }
@@ -1728,7 +1728,7 @@ function lpLoadFromUrl() {
       lpChildren = JSON.parse(params.get('children')).map(c => ({
         age: c.age || 0,
         useChildNisa: !!c.useChildNisa,
-        childNisaAnnual: c.childNisaAnnual || 120,
+        childNisaAnnual: c.childNisaAnnual ?? 120,
       }));
     } catch(e) {}
     lpRenderChildren();
@@ -1749,7 +1749,7 @@ function lpBuildUrlString() {
     const cleanChildren = lpChildren.map(c => ({
       age: c.age || 0,
       useChildNisa: !!c.useChildNisa,
-      childNisaAnnual: c.childNisaAnnual || 120,
+      childNisaAnnual: c.childNisaAnnual ?? 120,
     }));
     params.set('children', JSON.stringify(cleanChildren));
   }
