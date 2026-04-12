@@ -1164,7 +1164,8 @@ function lpUpdateNisaWarnings(p) {
 // ===== 出力 =====
 function lpBuildOutput() {
   document.getElementById('lp-output').innerHTML = `
-    <div style="text-align:right; margin-bottom:8px;">
+    <div style="text-align:right; margin-bottom:8px; display:flex; justify-content:flex-end; gap:8px;">
+      <button onclick="lpCopyUrl()" style="font-size:13px;padding:8px 16px;cursor:pointer;border-radius:6px;border:1px solid #ccc;background:#fff;">URLをコピー</button>
       <button id="lp-share-btn" onclick="lpShare()" style="font-size:13px;padding:8px 16px;cursor:pointer;border-radius:6px;border:1px solid #ccc;background:#fff;">結果をシェア</button>
     </div>
     <div id="lp-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px;">
@@ -1373,12 +1374,67 @@ function lpRecalc() {
   lpUpdateOutput(rows);
 }
 
+// ===== URL パラメータ保存・復元 =====
+const LP_URL_KEYS = LP_FIELDS.flatMap(g => g.fields.map(f => f.key));
+
+function lpCopyUrl() {
+  const params = new URLSearchParams();
+  for (const key of LP_URL_KEYS) {
+    const el = document.getElementById('n_' + key);
+    if (el) params.set(key, el.value);
+  }
+  // tuition costs
+  for (let i = 0; i < lpTuitionCosts.length; i++) params.set('tc' + i, lpTuitionCosts[i].cost);
+  // phases
+  params.set('phases', JSON.stringify(lpPhases));
+  // children
+  if (lpChildren.length > 0) params.set('children', JSON.stringify(lpChildren));
+  const url = location.origin + location.pathname + '?' + params.toString();
+  navigator.clipboard.writeText(url).then(() => {
+    if (typeof showToast === 'function') showToast('URLをコピーしました');
+    else alert('URLをコピーしました');
+  });
+}
+
+function lpLoadFromUrl() {
+  const params = new URLSearchParams(location.search);
+  if (params.size === 0) return false;
+  let loaded = false;
+  for (const key of LP_URL_KEYS) {
+    if (params.has(key)) {
+      const r = document.getElementById('r_' + key);
+      const n = document.getElementById('n_' + key);
+      if (n) { n.value = params.get(key); loaded = true; }
+      if (r) r.value = Math.min(Math.max(parseFloat(params.get(key)), +r.min), +r.max);
+    }
+  }
+  for (let i = 0; i < lpTuitionCosts.length; i++) {
+    if (params.has('tc' + i)) {
+      lpTuitionCosts[i].cost = +params.get('tc' + i);
+      const r = document.getElementById('r_tuition' + i);
+      const n = document.getElementById('n_tuition' + i);
+      if (n) n.value = lpTuitionCosts[i].cost;
+      if (r) r.value = lpTuitionCosts[i].cost;
+    }
+  }
+  if (params.has('phases')) {
+    try { lpPhases = JSON.parse(params.get('phases')); } catch(e) {}
+    lpRenderPhases();
+  }
+  if (params.has('children')) {
+    try { lpChildren = JSON.parse(params.get('children')); } catch(e) {}
+    lpRenderChildren();
+  }
+  return loaded;
+}
+
 (function lpInit() {
   if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches && typeof Chart !== 'undefined') {
     Chart.defaults.color = '#aaa'; Chart.defaults.borderColor = '#444';
   }
   lpBuildPanel();
   lpBuildOutput();
+  lpLoadFromUrl();
   lpRecalc();
 })();
 </script>
