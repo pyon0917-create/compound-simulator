@@ -702,7 +702,11 @@ update();
 </script>
 
 <script>
-// ── ライフプラン計算エンジン (PHASE_E) ──────────────────────
+// ── ライフプラン計算エンジン (PHASE_E + NISA/税金) ──────────
+const TAX_RATE = 0.20315;
+const NISA_LIMIT = 1800;
+const CURRENT_YEAR = 2026;
+
 const DEFAULT_PARAMS = {
   startAge: 35, endAge: 80, retireAge: 60,
   salary: 800, salaryGrowthRate: 0.01, wifeIncome: 156,
@@ -742,38 +746,71 @@ function lpGetInvestForAge(age, phases, retireAge) {
   return { iSp: 0, iSc: 0, iDo: 0 };
 }
 
+function lpAfterTax(gross, nisaRatio) {
+  const r = Math.min(Math.max(nisaRatio, 0), 1);
+  return gross * (1 - (1 - r) * TAX_RATE);
+}
+
 function calcLifePlan(p) {
-  const initYoc        = p.initYoc != null ? p.initYoc : 2.89;
+  const initYoc = p.initYoc != null ? p.initYoc : 2.89;
   const schdGrowthRate = p.schdGrowthRate != null ? p.schdGrowthRate : 0.05;
-  const cashCap        = p.cashCap != null ? p.cashCap : 1000;
-  const initDiv        = p.initDiv != null ? p.initDiv : 9.0;
-  const inflationRate  = p.inflationRate || 0;
-  const children       = p.children || [];
-  const tuitionCosts   = p.tuitionCosts || LP_TUITION_DEFAULTS;
-  const domYoc         = p.domYoc != null ? p.domYoc : 0;
-  const domYocGrowth   = p.domYocGrowth != null ? p.domYocGrowth : 0;
-  const phases         = p.phases || null;
+  const cashCap = p.cashCap != null ? p.cashCap : 1000;
+  const initDiv = p.initDiv != null ? p.initDiv : 9.0;
+  const inflationRate = p.inflationRate || 0;
+  const children = p.children || [];
+  const tuitionCosts = p.tuitionCosts || LP_TUITION_DEFAULTS;
+  const domYoc0 = p.domYoc != null ? p.domYoc : 0;
+  const domYocGrowth = p.domYocGrowth != null ? p.domYocGrowth : 0;
+  const phases = p.phases || null;
 
-  const rows = [];
+  // NISA tracking
+  let selfNisaUsed = (p.nisaSelfSp500||0) + (p.nisaSelfSchd||0) + (p.nisaSelfDom||0);
+  let spouseNisaUsed = (p.nisaSpouseSp500||0) + (p.nisaSpouseSchd||0) + (p.nisaSpouseDom||0);
+  let nisaSp500 = (p.nisaSelfSp500||0) + (p.nisaSpouseSp500||0);
+  let nisaSchd = (p.nisaSelfSchd||0) + (p.nisaSpouseSchd||0);
+  let nisaDom = (p.nisaSelfDom||0) + (p.nisaSpouseDom||0);
+  let childNisaUsed = children.map(c => c.childNisaInit || 0);
 
-  // 生活費の基準年齢判定
+  function allocNisa(iSp, iSc, iDo, age) {
+    const total = iSp + iSc + iDo;
+    if (total <= 0) return;
+    const year = CURRENT_YEAR + (age - p.startAge);
+    let cap = Math.max(0, NISA_LIMIT - selfNisaUsed) + Math.max(0, NISA_LIMIT - spouseNisaUsed);
+    const childCaps = [];
+    for (let ci = 0; ci < children.length; ci++) {
+      const c = children[ci]; let cc = 0;
+      if (c.useChildNisa) {
+        const ca = c.age + (age - p.startAge);
+        if (ca >= 18) cc = Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
+        else if (year >= 2027 && ca >= 0) cc = c.childNisaAnnual || 120;
+      }
+      childCaps.push(cc); cap += cc;
+    }
+    const alloc = Math.min(total, cap);
+    if (alloc <= 0) return;
+    const r = alloc / total;
+    nisaSp500 += iSp * r; nisaSchd += iSc * r; nisaDom += iDo * r;
+    let rem = alloc;
+    const su = Math.min(rem, Math.max(0, NISA_LIMIT - selfNisaUsed));
+    selfNisaUsed += su; rem -= su;
+    const spu = Math.min(rem, Math.max(0, NISA_LIMIT - spouseNisaUsed));
+    spouseNisaUsed += spu; rem -= spu;
+    for (let ci = 0; ci < children.length && rem > 0; ci++) {
+      const u = Math.min(rem, childCaps[ci]); childNisaUsed[ci] += u; rem -= u;
+    }
+  }
+
+  function nisaR(purchased, evalVal) { return evalVal > 0 ? Math.min(purchased / evalVal, 1) : 0; }
   function baseLivingCost(age) {
     if (age < p.livingCostChangeAge) return p.livingCost1;
     if (age < p.retireAge) return p.livingCost2;
     return p.livingCostRetired;
   }
-
-  // 学費計算
   function tuitionForYear(myAge) {
-    let total = 0;
-    for (const c of children) {
-      const childAge = c.age + (myAge - p.startAge);
-      total += lpCalcTuitionForAge(childAge, tuitionCosts);
-    }
-    return total;
+    let t = 0;
+    for (const c of children) t += lpCalcTuitionForAge(c.age + (myAge - p.startAge), tuitionCosts);
+    return t;
   }
-
-  // 投資額判定
   function investForAge(age) {
     if (phases && phases.length > 0) return lpGetInvestForAge(age, phases, p.retireAge);
     if (age >= p.retireAge) return { iSp: 0, iSc: 0, iDo: 0 };
@@ -781,31 +818,37 @@ function calcLifePlan(p) {
     return { iSp: p.p2Sp500||0, iSc: p.p2Schd||0, iDo: p.p2Domestic||0 };
   }
 
+  const rows = [];
+
   // ===== 初期スナップショット =====
-  const lc0base = baseLivingCost(p.startAge);
-  const tuition0 = tuitionForYear(p.startAge);
-  const lc0 = lc0base + tuition0;
+  const lc0 = baseLivingCost(p.startAge) + tuitionForYear(p.startAge);
   const inv0 = investForAge(p.startAge);
-  const totIncome0 = p.salary + p.wifeIncome + initDiv;
+  const etfR0 = nisaR(nisaSchd + nisaDom, p.initSchd + p.initDomestic);
+  const domR0 = nisaR(nisaDom, p.initDomestic);
+  const sp500R0 = nisaR(nisaSp500, p.initSp500);
+  const divAT0 = lpAfterTax(initDiv, etfR0);
+  const initDomDiv = domYoc0 > 0 ? p.initDomestic * domYoc0 / 100 : 0;
+  const domDivAT0 = lpAfterTax(initDomDiv, domR0);
+  allocNisa(inv0.iSp, inv0.iSc, inv0.iDo, p.startAge);
+  const totInc0 = p.salary + p.wifeIncome + divAT0 + domDivAT0;
   const totInv0 = inv0.iSp + inv0.iSc + inv0.iDo;
-  const initDomDiv = domYoc > 0 ? p.initDomestic * domYoc / 100 : 0;
   rows.push({
     age: p.startAge, salary: p.salary, wifeIncome: p.wifeIncome,
-    dividendIncome: initDiv, domDividend: initDomDiv, yoc: initYoc, domYocVal: domYoc,
+    dividendIncome: divAT0, domDividend: domDivAT0, yoc: initYoc, domYocVal: domYoc0,
     sp500Withdraw: 0, pension: 0, severance: 0,
-    totalIncome: totIncome0 + initDomDiv, livingCost: lc0, tuition: tuition0,
+    totalIncome: totInc0, livingCost: lc0, tuition: tuitionForYear(p.startAge),
     investSp500: inv0.iSp, investSchd: inv0.iSc, investDomestic: inv0.iDo,
     totalInvest: totInv0,
-    preinvestBalance: totIncome0 + initDomDiv - lc0,
-    postinvestBalance: totIncome0 + initDomDiv - lc0 - totInv0,
+    preinvestBalance: totInc0 - lc0, postinvestBalance: totInc0 - lc0 - totInv0,
     cash: p.initCash, sp500Val: p.initSp500, schdVal: p.initSchd,
     domesticVal: p.initDomestic, severanceRemain: 0,
     totalAsset: p.initCash + p.initSp500 + p.initSchd + p.initDomestic,
+    selfNisaUsed, spouseNisaUsed, childNisaUsed: [...childNisaUsed],
   });
 
   let prevSp500 = p.initSp500, prevSchd = p.initSchd, prevDom = p.initDomestic;
   let prevCash = p.initCash, prevSev = 0;
-  let yoc = initYoc, curDomYoc = domYoc, salary = p.salary;
+  let yoc = initYoc, curDomYoc = domYoc0, salary = p.salary;
   let lcInflationFactor = 1;
 
   for (let age = p.startAge + 1; age <= p.endAge; age++) {
@@ -813,31 +856,41 @@ function calcLifePlan(p) {
     const iSp = inv.iSp, iSc = inv.iSc, iDo = inv.iDo;
 
     lcInflationFactor *= (1 + inflationRate);
-    const lcBase = baseLivingCost(age) * lcInflationFactor;
-    const tuition = tuitionForYear(age);
-    const lc = lcBase + tuition;
+    const lc = baseLivingCost(age) * lcInflationFactor + tuitionForYear(age);
 
-    let sp500Withdraw = 0;
-    if (age >= p.sp500WithdrawStartAge && p.sp500WithdrawRate != null) {
-      sp500Withdraw = prevSp500 * p.sp500WithdrawRate;
-    }
+    // NISA ratios (from prev year purchased amounts / prev year evaluations)
+    const etfNR = nisaR(nisaSchd + nisaDom, prevSchd + prevDom);
+    const domNR = nisaR(nisaDom, prevDom);
+    const sp500NR = nisaR(nisaSp500, prevSp500);
 
-    const newSp500 = (prevSp500 - sp500Withdraw) * (1 + p.sp500Rate) + iSp;
-    const newSchd  = prevSchd * (1 + schdGrowthRate) + iSc;
-    const newDom   = prevDom + iDo;
+    // Gross calculations
+    let sp500WithdrawGross = 0;
+    if (age >= p.sp500WithdrawStartAge && p.sp500WithdrawRate != null)
+      sp500WithdrawGross = prevSp500 * p.sp500WithdrawRate;
+
+    const newSp500 = (prevSp500 - sp500WithdrawGross) * (1 + p.sp500Rate) + iSp;
+    const newSchd = prevSchd * (1 + schdGrowthRate) + iSc;
+    const newDom = prevDom + iDo;
 
     yoc = yoc * (1 + p.yocGrowthRate);
-    const dividendIncome = (prevSchd + prevDom) * yoc / 100;
-
+    const divGross = (prevSchd + prevDom) * yoc / 100;
     if (domYocGrowth > 0) curDomYoc = curDomYoc * (1 + domYocGrowth);
-    const domDividend = curDomYoc > 0 ? prevDom * curDomYoc / 100 : 0;
+    const domDivGross = curDomYoc > 0 ? prevDom * curDomYoc / 100 : 0;
+
+    // After-tax
+    const divAT = lpAfterTax(divGross, etfNR);
+    const domDivAT = lpAfterTax(domDivGross, domNR);
+    const sp500WithdrawAT = lpAfterTax(sp500WithdrawGross, sp500NR);
+
+    // Allocate new investments to NISA
+    allocNisa(iSp, iSc, iDo, age);
 
     salary = salary * (1 + p.salaryGrowthRate);
-    const salNow     = age < p.retireAge ? salary : 0;
-    const wifeNow    = age < p.retireAge ? p.wifeIncome : 0;
+    const salNow = age < p.retireAge ? salary : 0;
+    const wifeNow = age < p.retireAge ? p.wifeIncome : 0;
     const pensionNow = age >= p.retireAge ? p.pension : 0;
-    const sevNow     = age === p.retireAge ? p.severance : 0;
-    const totalIncome = salNow + wifeNow + dividendIncome + domDividend + sp500Withdraw + pensionNow + sevNow;
+    const sevNow = age === p.retireAge ? p.severance : 0;
+    const totalIncome = salNow + wifeNow + divAT + domDivAT + sp500WithdrawAT + pensionNow + sevNow;
 
     const preinv = totalIncome - lc;
     const totInv = iSp + iSc + iDo;
@@ -845,19 +898,19 @@ function calcLifePlan(p) {
 
     let cashNew = prevCash + postinv;
     if (cashNew > cashCap) cashNew = cashCap;
-
     const sevRem = age === p.retireAge ? p.severance : prevSev;
     const totalAsset = cashNew + newSp500 + newSchd + newDom + sevRem;
 
     rows.push({
       age, salary: salNow, wifeIncome: wifeNow,
-      dividendIncome, domDividend, yoc, domYocVal: curDomYoc,
-      sp500Withdraw, pension: pensionNow, severance: sevNow,
-      totalIncome, livingCost: lc, tuition,
+      dividendIncome: divAT, domDividend: domDivAT, yoc, domYocVal: curDomYoc,
+      sp500Withdraw: sp500WithdrawAT, pension: pensionNow, severance: sevNow,
+      totalIncome, livingCost: lc, tuition: tuitionForYear(age),
       investSp500: iSp, investSchd: iSc, investDomestic: iDo,
       totalInvest: totInv, preinvestBalance: preinv, postinvestBalance: postinv,
       cash: cashNew, sp500Val: newSp500, schdVal: newSchd,
       domesticVal: newDom, severanceRemain: sevRem, totalAsset,
+      selfNisaUsed, spouseNisaUsed, childNisaUsed: [...childNisaUsed],
     });
 
     prevSp500 = newSp500; prevSchd = newSchd; prevDom = newDom;
@@ -885,7 +938,6 @@ let lpPhases = [
 ];
 let lpTuitionCosts = LP_TUITION_DEFAULTS.map(t => ({ ...t }));
 
-// 固定フィールド
 const LP_FIELDS = [
   { title: '基本設定', fields: [
     { key: 'startAge', label: '開始年齢', min: 20, max: 60, step: 1, def: 35, unit: '歳' },
@@ -912,6 +964,16 @@ const LP_FIELDS = [
     { key: 'sp500WithdrawStartAge', label: 'インデックス取崩 開始年齢', min: 40, max: 75, step: 1, def: 52, unit: '歳' },
     { key: 'sp500WithdrawRate', label: 'インデックス取崩率', min: 0, max: 10, step: 0.1, def: 4.0, unit: '%' },
     { key: 'cashKeep', label: '現金キャップ', min: 0, max: 3000, step: 100, def: 1000, unit: '万円' },
+  ]},
+  { title: 'NISA設定（自分）', id: 'lp-nisa-self', fields: [
+    { key: 'nisaSelfSp500', label: 'ｲﾝﾃﾞｯｸｽ NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
+    { key: 'nisaSelfSchd', label: '米国ETF NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
+    { key: 'nisaSelfDom', label: '国内 NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
+  ]},
+  { title: 'NISA設定（配偶者）', id: 'lp-nisa-spouse', fields: [
+    { key: 'nisaSpouseSp500', label: 'ｲﾝﾃﾞｯｸｽ NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
+    { key: 'nisaSpouseSchd', label: '米国ETF NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
+    { key: 'nisaSpouseDom', label: '国内 NISA購入済', min: 0, max: 1800, step: 10, def: 0, unit: '万円' },
   ]},
   { title: '生活費設定', fields: [
     { key: 'livingCost1', label: '生活費(変化年齢前)', min: 0, max: 2000, step: 50, def: 600, unit: '万円/年' },
@@ -940,6 +1002,12 @@ function lpBuildPanel() {
     if (g.id === 'lp-family-section') {
       html += `<div id="lp-children-list"></div>
         <button onclick="lpAddChild()" style="font-size:12px;padding:6px 12px;cursor:pointer;border-radius:4px;border:1px solid #ccc;background:#fff;margin-top:4px;">+ 子どもを追加</button>`;
+    }
+    if (g.id === 'lp-nisa-self') {
+      html += `<div id="lp-nisa-self-warn" style="font-size:11px;color:#E24B4A;display:none;margin-top:4px;"></div>`;
+    }
+    if (g.id === 'lp-nisa-spouse') {
+      html += `<div id="lp-nisa-spouse-warn" style="font-size:11px;color:#E24B4A;display:none;margin-top:4px;"></div>`;
     }
     html += '</div>';
   }
@@ -987,7 +1055,7 @@ function lpLinkTuition(i) {
 
 // ===== 子ども管理 =====
 function lpAddChild() {
-  lpChildren.push({ age: 0 });
+  lpChildren.push({ age: 0, useChildNisa: false, childNisaAnnual: 120, childNisaInit: 0 });
   lpRenderChildren();
   lpRecalc();
 }
@@ -1000,12 +1068,20 @@ function lpRenderChildren() {
   const el = document.getElementById('lp-children-list');
   if (!el) return;
   el.innerHTML = lpChildren.map((c, i) => `
-    <div class="lp-field" style="display:flex;align-items:center;gap:6px;">
-      <label class="lp-label" style="flex-shrink:0;">子ども${i + 1}</label>
-      <input type="number" value="${c.age}" min="-5" max="30" step="1" class="lp-num" style="width:60px;"
-        onchange="lpChildren[${i}].age=+this.value;lpRecalc();">
-      <span class="lp-unit">歳</span>
-      <button onclick="lpRemoveChild(${i})" style="font-size:11px;padding:2px 8px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#fff;color:#E24B4A;">削除</button>
+    <div style="border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:6px;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+        <label class="lp-label" style="flex-shrink:0;">子ども${i + 1}</label>
+        <input type="number" value="${c.age}" min="-5" max="30" step="1" class="lp-num" style="width:56px;"
+          onchange="lpChildren[${i}].age=+this.value;lpRecalc();">
+        <span class="lp-unit">歳</span>
+        <button onclick="lpRemoveChild(${i})" style="font-size:11px;padding:2px 8px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#fff;color:#E24B4A;">削除</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;">
+        <label><input type="checkbox" ${c.useChildNisa ? 'checked' : ''}
+          onchange="lpChildren[${i}].useChildNisa=this.checked;lpRecalc();"> こどもNISA</label>
+        ${c.useChildNisa ? `<label>年間<input type="number" value="${c.childNisaAnnual}" min="0" max="120" step="10" class="lp-num" style="width:56px;"
+          onchange="lpChildren[${i}].childNisaAnnual=+this.value;lpRecalc();">万円</label>` : ''}
+      </div>
     </div>
   `).join('');
 }
@@ -1046,7 +1122,7 @@ function lpRenderPhases() {
 
 function lpGetParams() {
   const v = key => { const el = document.getElementById('n_' + key); return el ? parseFloat(el.value) : 0; };
-  return {
+  const params = {
     startAge: v('startAge'), endAge: v('endAge'), retireAge: v('retireAge'),
     salary: v('salary'), salaryGrowthRate: v('salaryGrowthRate') / 100,
     wifeIncome: v('wifeIncome'), severance: v('severance'), pension: v('pension'),
@@ -1058,12 +1134,31 @@ function lpGetParams() {
     sp500WithdrawStartAge: v('sp500WithdrawStartAge'),
     sp500WithdrawRate: v('sp500WithdrawRate') / 100,
     cashCap: v('cashKeep'),
+    nisaSelfSp500: v('nisaSelfSp500'), nisaSelfSchd: v('nisaSelfSchd'), nisaSelfDom: v('nisaSelfDom'),
+    nisaSpouseSp500: v('nisaSpouseSp500'), nisaSpouseSchd: v('nisaSpouseSchd'), nisaSpouseDom: v('nisaSpouseDom'),
     livingCost1: v('livingCost1'), livingCostChangeAge: v('livingCostChangeAge'),
     livingCost2: v('livingCost2'), livingCostRetired: v('livingCostRetired'),
     inflationRate: v('inflationRate') / 100,
     children: lpChildren, tuitionCosts: lpTuitionCosts, phases: lpPhases,
     initCash: 195, initSp500: 506.3, initSchd: 489.9, initDomestic: 132, initDiv: 9.0,
   };
+  lpUpdateNisaWarnings(params);
+  return params;
+}
+
+function lpUpdateNisaWarnings(p) {
+  const selfTotal = (p.nisaSelfSp500||0) + (p.nisaSelfSchd||0) + (p.nisaSelfDom||0);
+  const spouseTotal = (p.nisaSpouseSp500||0) + (p.nisaSpouseSchd||0) + (p.nisaSpouseDom||0);
+  const wSelf = document.getElementById('lp-nisa-self-warn');
+  const wSpouse = document.getElementById('lp-nisa-spouse-warn');
+  if (wSelf) {
+    if (selfTotal > NISA_LIMIT) { wSelf.style.display = 'block'; wSelf.textContent = `合計${selfTotal}万円 (上限${NISA_LIMIT}万円超過!)`; }
+    else { wSelf.style.display = 'none'; }
+  }
+  if (wSpouse) {
+    if (spouseTotal > NISA_LIMIT) { wSpouse.style.display = 'block'; wSpouse.textContent = `合計${spouseTotal}万円 (上限${NISA_LIMIT}万円超過!)`; }
+    else { wSpouse.style.display = 'none'; }
+  }
 }
 
 // ===== 出力 =====
@@ -1072,11 +1167,17 @@ function lpBuildOutput() {
     <div style="text-align:right; margin-bottom:8px;">
       <button id="lp-share-btn" onclick="lpShare()" style="font-size:13px;padding:8px 16px;cursor:pointer;border-radius:6px;border:1px solid #ccc;background:#fff;">結果をシェア</button>
     </div>
-    <div id="lp-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">
+    <div id="lp-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px;">
       <div class="lp-card"><div class="lp-card-label">最終総資産</div><div class="lp-card-value" id="lp-s-asset">—</div></div>
       <div class="lp-card"><div class="lp-card-label">FI達成年齢</div><div class="lp-card-value" id="lp-s-fi">—</div></div>
-      <div class="lp-card"><div class="lp-card-label">退職時 年間配当</div><div class="lp-card-value" id="lp-s-div">—</div></div>
+      <div class="lp-card"><div class="lp-card-label">退職時 配当(税引後)</div><div class="lp-card-value" id="lp-s-div">—</div></div>
     </div>
+    <div id="lp-nisa-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">
+      <div class="lp-card"><div class="lp-card-label">自分 NISA残枠</div><div class="lp-card-value" id="lp-s-nisa-self" style="font-size:16px;">—</div></div>
+      <div class="lp-card"><div class="lp-card-label">配偶者 NISA残枠</div><div class="lp-card-value" id="lp-s-nisa-spouse" style="font-size:16px;">—</div></div>
+      <div class="lp-card"><div class="lp-card-label">夫婦合計残枠</div><div class="lp-card-value" id="lp-s-nisa-couple" style="font-size:16px;">—</div></div>
+    </div>
+    <div id="lp-nisa-children-summary" style="margin-bottom:24px;"></div>
     <div style="margin-bottom:32px;"><h3 style="font-size:14px;margin-bottom:8px;color:#555;">総資産推移</h3><canvas id="lp-chart-asset" style="max-height:300px;"></canvas></div>
     <div style="margin-bottom:32px;"><h3 style="font-size:14px;margin-bottom:8px;color:#555;">収入内訳推移</h3><canvas id="lp-chart-income" style="max-height:280px;"></canvas></div>
     <div style="margin-bottom:32px;"><h3 style="font-size:14px;margin-bottom:8px;color:#555;">年間収支</h3><canvas id="lp-chart-balance" style="max-height:240px;"></canvas></div>
@@ -1109,6 +1210,35 @@ function lpUpdateSummary(rows, params) {
   const retireRow = rows.find(r => r.age === params.retireAge);
   document.getElementById('lp-s-div').textContent =
     retireRow ? lpFmt(retireRow.dividendIncome + (retireRow.domDividend || 0)) + '/年' : '—';
+
+  // NISA残枠
+  const selfUsed = (params.nisaSelfSp500||0) + (params.nisaSelfSchd||0) + (params.nisaSelfDom||0);
+  const spouseUsed = (params.nisaSpouseSp500||0) + (params.nisaSpouseSchd||0) + (params.nisaSpouseDom||0);
+  const selfRem = Math.max(0, NISA_LIMIT - selfUsed);
+  const spouseRem = Math.max(0, NISA_LIMIT - spouseUsed);
+  document.getElementById('lp-s-nisa-self').textContent = selfRem + '万円';
+  document.getElementById('lp-s-nisa-self').style.color = selfUsed > NISA_LIMIT ? '#E24B4A' : '';
+  document.getElementById('lp-s-nisa-spouse').textContent = spouseRem + '万円';
+  document.getElementById('lp-s-nisa-spouse').style.color = spouseUsed > NISA_LIMIT ? '#E24B4A' : '';
+  document.getElementById('lp-s-nisa-couple').textContent = (selfRem + spouseRem) + '万円';
+
+  // こどもNISAサマリー
+  const childSumEl = document.getElementById('lp-nisa-children-summary');
+  if (childSumEl && last.childNisaUsed) {
+    const children = params.children || [];
+    let html = '';
+    children.forEach((c, i) => {
+      if (!c.useChildNisa) return;
+      const used = last.childNisaUsed[i] || 0;
+      const childFinalAge = c.age + (params.endAge - params.startAge);
+      const remaining = childFinalAge >= 18 ? Math.max(0, NISA_LIMIT - used) : '—';
+      html += `<div class="lp-card" style="margin-bottom:8px;padding:8px 12px;">
+        <div class="lp-card-label">子ども${i+1} NISA累積</div>
+        <div style="font-size:14px;font-weight:500;">${Math.round(used)}万円 / 残枠: ${typeof remaining === 'number' ? remaining + '万円' : remaining}</div>
+      </div>`;
+    });
+    childSumEl.innerHTML = html;
+  }
 }
 
 function lpUpdateCharts(rows) {
