@@ -1538,25 +1538,14 @@ function lpRecalc() {
   const params = lpGetParams();
   const rows = calcLifePlan(params);
   lpUpdateOutput(rows);
-  lpSaveToLocalStorage();
+  lpAutoUpdateUrl();
 }
 
 // ===== URL パラメータ保存・復元 =====
 const LP_URL_KEYS = LP_FIELDS.flatMap(g => g.fields.map(f => f.key));
 
 function lpCopyUrl() {
-  const params = new URLSearchParams();
-  for (const key of LP_URL_KEYS) {
-    const el = document.getElementById('n_' + key);
-    if (el) params.set(key, el.value);
-  }
-  // tuition costs
-  for (let i = 0; i < lpTuitionCosts.length; i++) params.set('tc' + i, lpTuitionCosts[i].cost);
-  // phases
-  params.set('phases', JSON.stringify(lpPhases));
-  // children
-  if (lpChildren.length > 0) params.set('children', JSON.stringify(lpChildren));
-  const url = location.origin + location.pathname + '?' + params.toString();
+  const url = lpBuildUrlString();
   navigator.clipboard.writeText(url).then(() => {
     if (typeof showToast === 'function') showToast('URLをコピーしました');
     else alert('URLをコピーしました');
@@ -1596,57 +1585,29 @@ function lpLoadFromUrl() {
   return loaded;
 }
 
-// ===== localStorage 自動保存・復元 =====
-const LP_STORAGE_KEY = 'lifePlanSettings';
-
-function lpSaveToLocalStorage() {
-  try {
-    const data = {};
-    for (const key of LP_URL_KEYS) {
-      const el = document.getElementById('n_' + key);
-      if (el) data[key] = el.value;
-    }
-    for (let i = 0; i < lpTuitionCosts.length; i++) data['tc' + i] = lpTuitionCosts[i].cost;
-    data.phases = lpPhases;
-    data.children = lpChildren;
-    data.cashKeepManual = lpCashKeepManual;
-    localStorage.setItem(LP_STORAGE_KEY, JSON.stringify(data));
-    const el = document.getElementById('lp-save-status');
-    if (el) el.textContent = '💾 保存済 ' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-  } catch(e) { console.warn('自動保存失敗:', e); }
+// ===== URL自動更新 =====
+function lpBuildUrlString() {
+  const params = new URLSearchParams();
+  for (const key of LP_URL_KEYS) {
+    const el = document.getElementById('n_' + key);
+    if (el) params.set(key, el.value);
+  }
+  for (let i = 0; i < lpTuitionCosts.length; i++) params.set('tc' + i, lpTuitionCosts[i].cost);
+  params.set('phases', JSON.stringify(lpPhases));
+  if (lpChildren.length > 0) params.set('children', JSON.stringify(lpChildren));
+  return location.origin + location.pathname + '?' + params.toString();
 }
 
-function lpLoadFromLocalStorage() {
+function lpAutoUpdateUrl() {
   try {
-    if (location.search) return false;
-    const saved = localStorage.getItem(LP_STORAGE_KEY);
-    if (!saved) return false;
-    const data = JSON.parse(saved);
-    for (const key of LP_URL_KEYS) {
-      if (data[key] == null) continue;
-      const r = document.getElementById('r_' + key);
-      const n = document.getElementById('n_' + key);
-      if (n) n.value = data[key];
-      if (r) r.value = Math.min(Math.max(parseFloat(data[key]), +r.min), +r.max);
-    }
-    for (let i = 0; i < lpTuitionCosts.length; i++) {
-      if (data['tc' + i] != null) {
-        lpTuitionCosts[i].cost = +data['tc' + i];
-        const r = document.getElementById('r_tuition' + i);
-        const n = document.getElementById('n_tuition' + i);
-        if (n) n.value = lpTuitionCosts[i].cost;
-        if (r) r.value = lpTuitionCosts[i].cost;
-      }
-    }
-    if (data.phases) { lpPhases = data.phases; lpRenderPhases(); }
-    if (data.children) { lpChildren = data.children; lpRenderChildren(); }
-    if (data.cashKeepManual) lpCashKeepManual = true;
-    return true;
-  } catch(e) { console.warn('復元失敗:', e); return false; }
+    const url = lpBuildUrlString();
+    history.replaceState(null, '', url);
+    const el = document.getElementById('lp-save-status');
+    if (el) el.textContent = '設定は自動でURLに保存されます';
+  } catch(e) { console.warn('URL更新失敗:', e); }
 }
 
 function lpResetSettings() {
-  try { localStorage.removeItem(LP_STORAGE_KEY); } catch(e) {}
   location.href = location.origin + location.pathname;
 }
 
@@ -1656,7 +1617,7 @@ function lpResetSettings() {
   }
   lpBuildPanel();
   lpBuildOutput();
-  if (!lpLoadFromUrl()) lpLoadFromLocalStorage();
+  lpLoadFromUrl();
   lpRecalc();
 })();
 </script>
