@@ -495,9 +495,9 @@
         <table class="mn-tbl"><tr><td><strong>インデックス 初期評価額</strong></td><td>現在保有しているインデックスファンドの評価額</td></tr><tr><td><strong>米国ETF 初期評価額</strong></td><td>現在保有している米国高配当株ETFの評価額</td></tr><tr><td><strong>米国ETF 初期配当収入</strong></td><td>現在の年間ETF配当収入の実績額。簿価利回りのズレを補正できます</td></tr><tr><td><strong>国内株 初期評価額</strong></td><td>現在保有している国内高配当株の評価額</td></tr><tr><td><strong>国内株 初期配当収入</strong></td><td>現在の年間国内配当収入の実績額</td></tr><tr><td><strong>現金 初期値</strong></td><td>シミュレーション開始時点の現金・預金額</td></tr></table>
         <p style="font-weight:600;margin:12px 0 6px;">【投資設定】</p>
         <table class="mn-tbl"><tr><td><strong>インデックス 期待年利</strong></td><td>年間成長率。全世界株・S&amp;P500は過去平均で7〜10%程度</td></tr><tr><td><strong>米国ETF 取得時利回り</strong></td><td>購入した時点の配当利回り。SCHDは3〜4%程度</td></tr><tr><td><strong>米国ETF 増配率</strong></td><td>配当金が毎年増える割合。SCHDは過去平均10%程度</td></tr><tr><td><strong>米国ETF 値上がり率</strong></td><td>ETFの価格が毎年上昇する割合</td></tr><tr><td><strong>国内株 取得時利回り</strong></td><td>国内高配当株の取得時の配当利回り</td></tr><tr><td><strong>国内株 増配率</strong></td><td>国内株の配当増加率</td></tr><tr><td><strong>取崩し 開始評価額</strong></td><td>この金額を超えた翌年から取り崩し開始。0の場合は退職年齢から開始</td></tr><tr><td><strong>取崩し率</strong></td><td>取り崩す割合。4%ルールが一般的</td></tr><tr><td><strong>現金キャップ</strong></td><td>保有する現金の上限額。超えた分は使い切る前提</td></tr></table>
-        <p style="font-weight:600;margin:12px 0 6px;">【口座別評価額（NISA/特定口座）】</p>
+        <p style="font-weight:600;margin:12px 0 6px;">【口座別評価額・投資フェーズ（NISA/特定口座）】</p>
         <p style="margin-bottom:8px;padding:8px 12px;background:var(--card-bg);border-radius:6px;font-size:13px;">NISAとは：投資の利益・配当に通常約20%かかる税金が非課税になる制度。生涯上限は1人1800万円。NISA口座の配当・取崩しは非課税、特定口座は約20.315%課税されます。取崩し時はNISA口座から優先して行います。</p>
-        <p>各資産をNISA口座・特定口座に分けて入力することで、配当と取崩しの課税計算が正確になります。</p>
+        <p style="margin-bottom:8px;">各資産の初期評価額をNISA口座・特定口座に分けて入力します。投資フェーズでも、毎年の投資額をNISA口座・特定口座別に設定できます。NISA残枠を超えた分は自動で特定口座にオーバーフローします。</p>
       </div>
     </div>
     <div class="mn-section">
@@ -877,11 +877,16 @@ function lpCalcTuitionForAge(childAge, tuitionCosts) {
 }
 
 function lpGetInvestForAge(age, phases, retireAge) {
-  if (age >= retireAge) return { iSp: 0, iSc: 0, iDo: 0 };
+  const z = { sp500Nisa:0, sp500Tok:0, schdNisa:0, schdTok:0, domNisa:0, domTok:0 };
+  if (age >= retireAge) return z;
   for (const ph of phases) {
-    if (age >= ph.startAge && age < ph.endAge) return { iSp: ph.sp500, iSc: ph.schd, iDo: ph.domestic };
+    if (age >= ph.startAge && age < ph.endAge) return {
+      sp500Nisa: ph.sp500Nisa||0, sp500Tok: ph.sp500Tok||0,
+      schdNisa: ph.schdNisa||0, schdTok: ph.schdTok||0,
+      domNisa: ph.domNisa||0, domTok: ph.domTok||0,
+    };
   }
-  return { iSp: 0, iSc: 0, iDo: 0 };
+  return z;
 }
 
 function calcLifePlan(p) {
@@ -903,40 +908,50 @@ function calcLifePlan(p) {
   let domN   = (p.domNisaVal||0) + (p.domNisaValSp||0);
   let domT   = (p.domTokVal||0) + (p.domTokValSp||0);
 
-  // NISA枠使用額追跡（新規投資配分用）
+  // NISA枠使用額追跡
   let selfNisaUsed = (p.sp500NisaVal||0) + (p.schdNisaVal||0) + (p.domNisaVal||0);
   let spouseNisaUsed = (p.sp500NisaValSp||0) + (p.schdNisaValSp||0) + (p.domNisaValSp||0);
   let childNisaUsed = children.map(c => c.childNisaInit || 0);
 
-  function allocNisaInvest(iSp, iSc, iDo, age) {
-    const total = iSp + iSc + iDo;
-    if (total <= 0) return;
+  function allocInvest(inv, age) {
     const year = CURRENT_YEAR + (age - p.startAge);
-    let cap = Math.max(0, NISA_LIMIT - selfNisaUsed) + Math.max(0, NISA_LIMIT - spouseNisaUsed);
-    const childCaps = [];
+    let nisaRem = Math.max(0, NISA_LIMIT - selfNisaUsed) + Math.max(0, NISA_LIMIT - spouseNisaUsed);
     for (let ci = 0; ci < children.length; ci++) {
-      const c = children[ci]; let cc = 0;
+      const c = children[ci];
       if (c.useChildNisa) {
         const ca = c.age + (age - p.startAge);
-        if (ca >= 18) cc = Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
-        else if (year >= 2027 && ca >= 0) cc = c.childNisaAnnual || 120;
+        if (ca >= 18) nisaRem += Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
+        else if (year >= 2027 && ca >= 0) nisaRem += (c.childNisaAnnual || 120);
       }
-      childCaps.push(cc); cap += cc;
     }
-    const alloc = Math.min(total, cap);
-    const ratio = total > 0 ? alloc / total : 0;
-    const nisaSp = iSp * ratio, nisaSc = iSc * ratio, nisaDo = iDo * ratio;
-    sp500N += nisaSp; sp500T += iSp - nisaSp;
-    schdN += nisaSc; schdT += iSc - nisaSc;
-    domN += nisaDo; domT += iDo - nisaDo;
-    let rem = alloc;
+    function alloc1(nisaIn, tokIn) {
+      const actual = Math.min(nisaIn, nisaRem);
+      const overflow = nisaIn - actual;
+      nisaRem -= actual;
+      return { n: actual, t: tokIn + overflow };
+    }
+    const sp = alloc1(inv.sp500Nisa, inv.sp500Tok);
+    const sc = alloc1(inv.schdNisa, inv.schdTok);
+    const dm = alloc1(inv.domNisa, inv.domTok);
+    sp500N += sp.n; sp500T += sp.t;
+    schdN += sc.n; schdT += sc.t;
+    domN += dm.n; domT += dm.t;
+    const totalNisa = sp.n + sc.n + dm.n;
+    let rem = totalNisa;
     const su = Math.min(rem, Math.max(0, NISA_LIMIT - selfNisaUsed));
     selfNisaUsed += su; rem -= su;
     const spu = Math.min(rem, Math.max(0, NISA_LIMIT - spouseNisaUsed));
     spouseNisaUsed += spu; rem -= spu;
     for (let ci = 0; ci < children.length && rem > 0; ci++) {
-      const u = Math.min(rem, childCaps[ci]); childNisaUsed[ci] += u; rem -= u;
+      const c = children[ci];
+      if (!c.useChildNisa) continue;
+      const ca = c.age + (age - p.startAge);
+      let cc = 0;
+      if (ca >= 18) cc = Math.max(0, NISA_LIMIT - childNisaUsed[ci]);
+      else if (year >= 2027 && ca >= 0) cc = c.childNisaAnnual || 120;
+      const u = Math.min(rem, cc); childNisaUsed[ci] += u; rem -= u;
     }
+    return { iSp: sp.n + sp.t, iSc: sc.n + sc.t, iDo: dm.n + dm.t };
   }
 
   function baseLivingCost(age) {
@@ -951,9 +966,7 @@ function calcLifePlan(p) {
   }
   function investForAge(age) {
     if (phases && phases.length > 0) return lpGetInvestForAge(age, phases, p.retireAge);
-    if (age >= p.retireAge) return { iSp: 0, iSc: 0, iDo: 0 };
-    if (age < (p.phase1EndAge || 40)) return { iSp: p.p1Sp500||0, iSc: p.p1Schd||0, iDo: p.p1Domestic||0 };
-    return { iSp: p.p2Sp500||0, iSc: p.p2Schd||0, iDo: p.p2Domestic||0 };
+    return { sp500Nisa:0, sp500Tok:0, schdNisa:0, schdTok:0, domNisa:0, domTok:0 };
   }
 
   const rows = [];
@@ -976,15 +989,15 @@ function calcLifePlan(p) {
   const domDivTok0 = domDivGross0 - domDivNisa0;
   const domDivAT0 = domDivNisa0 + domDivTok0 * (1 - TAX_RATE);
 
-  allocNisaInvest(inv0.iSp, inv0.iSc, inv0.iDo, p.startAge);
+  const inv0totals = allocInvest(inv0, p.startAge);
   const totInc0 = p.salary + p.wifeIncome + divAT0 + domDivAT0;
-  const totInv0 = inv0.iSp + inv0.iSc + inv0.iDo;
+  const totInv0 = inv0totals.iSp + inv0totals.iSc + inv0totals.iDo;
   rows.push({
     age: p.startAge, salary: p.salary, wifeIncome: p.wifeIncome,
     dividendIncome: divAT0, domDividend: domDivAT0, yoc: initYoc, domYocVal: domYoc0,
     sp500Withdraw: 0, pension: 0, severance: 0,
     totalIncome: totInc0, livingCost: lc0, tuition: tuitionForYear(p.startAge),
-    investSp500: inv0.iSp, investSchd: inv0.iSc, investDomestic: inv0.iDo,
+    investSp500: inv0totals.iSp, investSchd: inv0totals.iSc, investDomestic: inv0totals.iDo,
     totalInvest: totInv0,
     preinvestBalance: totInc0 - lc0, postinvestBalance: totInc0 - lc0 - totInv0,
     cash: initCash, sp500Val: initSp500, schdVal: initSchd, domesticVal: initDom,
@@ -1003,7 +1016,6 @@ function calcLifePlan(p) {
 
   for (let age = p.startAge + 1; age <= p.endAge; age++) {
     const inv = investForAge(age);
-    const iSp = inv.iSp, iSc = inv.iSc, iDo = inv.iDo;
 
     lcInflationFactor *= (1 + inflationRate);
     const lc = baseLivingCost(age) * lcInflationFactor + tuitionForYear(age);
@@ -1030,11 +1042,12 @@ function calcLifePlan(p) {
     const newDomN = prevDomN;
     const newDomT = prevDomT;
 
-    // NISA配分で投資額を加算（allocNisaInvest内でsp500N等を更新）
+    // NISA/特定口座配分で投資額を加算
     sp500N = newSp500N; sp500T = newSp500T;
     schdN = newSchdN; schdT = newSchdT;
     domN = newDomN; domT = newDomT;
-    allocNisaInvest(iSp, iSc, iDo, age);
+    const invTotals = allocInvest(inv, age);
+    const iSp = invTotals.iSp, iSc = invTotals.iSc, iDo = invTotals.iDo;
 
     const newSp500 = sp500N + sp500T;
     const newSchd = schdN + schdT;
@@ -1109,8 +1122,8 @@ function lpSwitchTab(name) {
 let lpCashKeepManual = false;
 let lpChildren = [];
 let lpPhases = [
-  { startAge: 18, endAge: 40, sp500: 0, schd: 0, domestic: 0 },
-  { startAge: 40, endAge: 60, sp500: 0, schd: 0, domestic: 0 },
+  { startAge: 18, endAge: 40, sp500Nisa: 0, sp500Tok: 0, schdNisa: 0, schdTok: 0, domNisa: 0, domTok: 0 },
+  { startAge: 40, endAge: 60, sp500Nisa: 0, sp500Tok: 0, schdNisa: 0, schdTok: 0, domNisa: 0, domTok: 0 },
 ];
 let lpTuitionCosts = LP_TUITION_DEFAULTS.map(t => ({ ...t }));
 
@@ -1281,7 +1294,7 @@ function lpRenderChildren() {
 // ===== フェーズ管理 =====
 function lpAddPhase() {
   const last = lpPhases.length > 0 ? lpPhases[lpPhases.length - 1] : null;
-  lpPhases.push({ startAge: last ? last.endAge : 35, endAge: last ? last.endAge + 10 : 45, sp500: 0, schd: 100, domestic: 100 });
+  lpPhases.push({ startAge: last ? last.endAge : 35, endAge: last ? last.endAge + 10 : 45, sp500Nisa:0, sp500Tok:0, schdNisa:0, schdTok:0, domNisa:0, domTok:0 });
   lpRenderPhases();
   lpRecalc();
 }
@@ -1294,19 +1307,26 @@ function lpRenderPhases() {
   const el = document.getElementById('lp-phases-list');
   if (!el) return;
   el.innerHTML = lpPhases.map((ph, i) => `
-    <div style="border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:8px;position:relative;">
+    <div style="border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:8px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span style="font-size:12px;font-weight:600;color:#555;">フェーズ${i + 1}</span>
         <button onclick="lpRemovePhase(${i})" style="font-size:11px;padding:2px 8px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#fff;color:#E24B4A;">削除</button>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:4px;">
-        <label>開始 <input type="number" value="${ph.startAge}" min="20" max="80" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].startAge=+this.value;lpRecalc();"></label>
-        <label>終了 <input type="number" value="${ph.endAge}" min="20" max="80" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].endAge=+this.value;lpRecalc();"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:6px;">
+        <label>開始 <input type="number" value="${ph.startAge}" min="15" max="80" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].startAge=+this.value;lpRecalc();"></label>
+        <label>終了 <input type="number" value="${ph.endAge}" min="15" max="80" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].endAge=+this.value;lpRecalc();"></label>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px;">
-        <label>ｲﾝﾃﾞｯｸｽ<input type="number" value="${ph.sp500}" min="0" step="10" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].sp500=+this.value;lpRecalc();"></label>
-        <label>米国ETF<input type="number" value="${ph.schd}" min="0" step="10" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].schd=+this.value;lpRecalc();"></label>
-        <label>国内<input type="number" value="${ph.domestic}" min="0" step="10" class="lp-num" style="width:56px;" onchange="lpPhases[${i}].domestic=+this.value;lpRecalc();"></label>
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:2px 4px;font-size:11px;align-items:center;">
+        <span></span><span style="text-align:center;font-weight:600;color:#888;">NISA</span><span style="text-align:center;font-weight:600;color:#888;">特定</span>
+        <span>ｲﾝﾃﾞｯｸｽ</span>
+        <input type="number" value="${ph.sp500Nisa||0}" min="0" step="10" class="lp-num" style="width:100%;" onchange="lpPhases[${i}].sp500Nisa=+this.value;lpRecalc();">
+        <input type="number" value="${ph.sp500Tok||0}" min="0" step="10" class="lp-num" style="width:100%;" onchange="lpPhases[${i}].sp500Tok=+this.value;lpRecalc();">
+        <span>米国ETF</span>
+        <input type="number" value="${ph.schdNisa||0}" min="0" step="10" class="lp-num" style="width:100%;" onchange="lpPhases[${i}].schdNisa=+this.value;lpRecalc();">
+        <input type="number" value="${ph.schdTok||0}" min="0" step="10" class="lp-num" style="width:100%;" onchange="lpPhases[${i}].schdTok=+this.value;lpRecalc();">
+        <span>国内株</span>
+        <input type="number" value="${ph.domNisa||0}" min="0" step="10" class="lp-num" style="width:100%;" onchange="lpPhases[${i}].domNisa=+this.value;lpRecalc();">
+        <input type="number" value="${ph.domTok||0}" min="0" step="10" class="lp-num" style="width:100%;" onchange="lpPhases[${i}].domTok=+this.value;lpRecalc();">
       </div>
     </div>
   `).join('');
