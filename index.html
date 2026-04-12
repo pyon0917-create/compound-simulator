@@ -713,7 +713,7 @@ const DEFAULT_PARAMS = {
   severance: 2500, pension: 266,
   sp500Rate: 0.07, schdGrowthRate: 0.05,
   initYoc: 2.89, yocGrowthRate: 0.05,
-  sp500WithdrawStartAge: 52, sp500WithdrawRate: 0.04,
+  sp500WithdrawThreshold: 0, sp500WithdrawRate: 0.04,
   cashCap: 1000,
   phase1EndAge: 40,
   p1Sp500: 120, p1Schd: 240, p1Domestic: 60,
@@ -865,7 +865,9 @@ function calcLifePlan(p) {
 
     // Gross calculations
     let sp500WithdrawGross = 0;
-    if (age >= p.sp500WithdrawStartAge && p.sp500WithdrawRate != null)
+    const thresholdMet = (p.sp500WithdrawThreshold > 0 && prevSp500 >= p.sp500WithdrawThreshold);
+    const retireMet = (age >= p.retireAge);
+    if ((thresholdMet || retireMet) && p.sp500WithdrawRate != null)
       sp500WithdrawGross = prevSp500 * p.sp500WithdrawRate;
 
     const newSp500 = (prevSp500 - sp500WithdrawGross) * (1 + p.sp500Rate) + iSp;
@@ -961,7 +963,7 @@ const LP_FIELDS = [
     { key: 'schdGrowthRate', label: '米国高配当株ETF 値上がり率', min: 0, max: 15, step: 0.1, def: 5.0, unit: '%' },
     { key: 'domYoc', label: '国内高配当株 取得時利回り', min: 0, max: 10, step: 0.1, def: 0, unit: '%' },
     { key: 'domYocGrowth', label: '国内高配当株 増配率', min: 0, max: 10, step: 0.1, def: 0, unit: '%' },
-    { key: 'sp500WithdrawStartAge', label: 'インデックス取崩 開始年齢', min: 40, max: 75, step: 1, def: 52, unit: '歳' },
+    { key: 'sp500WithdrawThreshold', label: 'インデックス取崩 開始評価額', min: 0, max: 50000, step: 10, def: 0, unit: '万円' },
     { key: 'sp500WithdrawRate', label: 'インデックス取崩率', min: 0, max: 10, step: 0.1, def: 4.0, unit: '%' },
     { key: 'cashKeep', label: '現金キャップ', min: 0, max: 3000, step: 100, def: 0, unit: '万円' },
   ]},
@@ -1137,7 +1139,7 @@ function lpGetParams() {
     yocGrowthRate: v('yocGrowthRate') / 100,
     schdGrowthRate: v('schdGrowthRate') / 100,
     domYoc: v('domYoc'), domYocGrowth: v('domYocGrowth') / 100,
-    sp500WithdrawStartAge: v('sp500WithdrawStartAge'),
+    sp500WithdrawThreshold: v('sp500WithdrawThreshold'),
     sp500WithdrawRate: v('sp500WithdrawRate') / 100,
     cashCap: v('cashKeep'),
     nisaSelfSp500: v('nisaSelfSp500'), nisaSelfSchd: v('nisaSelfSchd'), nisaSelfDom: v('nisaSelfDom'),
@@ -1324,7 +1326,7 @@ function lpUpdateTable(rows, params, fiAge) {
   tbody.innerHTML = rows.map(r => {
     const isFi = fiAge && r.age === fiAge;
     const isRetire = r.age === params.retireAge;
-    const isWithdraw = r.age === params.sp500WithdrawStartAge;
+    const isWithdraw = r.sp500Withdraw > 0 && (r.age === rows[0].age || rows.find(x => x.age === r.age - 1)?.sp500Withdraw === 0);
     const bg = isFi ? '#E1F5EE' : '';
     const cells = LP_TABLE_COLS.map(c => {
       const val = r[c.key] || 0;
