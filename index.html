@@ -826,9 +826,10 @@ function calcLifePlan(p) {
   const etfR0 = nisaR(nisaSchd + nisaDom, p.initSchd + p.initDomestic);
   const domR0 = nisaR(nisaDom, p.initDomestic);
   const sp500R0 = nisaR(nisaSp500, p.initSp500);
-  const divAT0 = lpAfterTax(initDiv, etfR0);
-  const initDomDiv = domYoc0 > 0 ? p.initDomestic * domYoc0 / 100 : 0;
-  const domDivAT0 = lpAfterTax(initDomDiv, domR0);
+  const etfDivGross0 = (p.initEtfDiv > 0) ? p.initEtfDiv : (initYoc > 0 ? (p.initSchd + p.initDomestic) * initYoc / 100 : initDiv);
+  const divAT0 = lpAfterTax(etfDivGross0, etfR0);
+  const domDivGross0 = (p.initDomDiv > 0) ? p.initDomDiv : (domYoc0 > 0 ? p.initDomestic * domYoc0 / 100 : 0);
+  const domDivAT0 = lpAfterTax(domDivGross0, domR0);
   allocNisa(inv0.iSp, inv0.iSc, inv0.iDo, p.startAge);
   const totInc0 = p.salary + p.wifeIncome + divAT0 + domDivAT0;
   const totInv0 = inv0.iSp + inv0.iSc + inv0.iDo;
@@ -971,7 +972,9 @@ const LP_FIELDS = [
   { title: '初期保有資産', fields: [
     { key: 'initSp500', label: 'インデックス 初期評価額', min: 0, max: 50000, step: 10, def: 0, unit: '万円' },
     { key: 'initSchd', label: '米国ETF 初期評価額', min: 0, max: 50000, step: 10, def: 0, unit: '万円' },
+    { key: 'initEtfDiv', label: '米国ETF 初期配当収入(年額)', min: 0, max: 1000, step: 1, def: 0, unit: '万円/年' },
     { key: 'initDomestic', label: '国内株 初期評価額', min: 0, max: 50000, step: 10, def: 0, unit: '万円' },
+    { key: 'initDomDiv', label: '国内株 初期配当収入(年額)', min: 0, max: 1000, step: 1, def: 0, unit: '万円/年' },
     { key: 'initCash', label: '現金 初期値', min: 0, max: 10000, step: 10, def: 0, unit: '万円' },
   ]},
   { title: 'NISA設定（自分）', id: 'lp-nisa-self', fields: [
@@ -1154,7 +1157,8 @@ function lpGetParams() {
     livingCost2: v('livingCost2'), livingCostRetired: v('livingCostRetired'),
     inflationRate: v('inflationRate') / 100,
     children: lpChildren, tuitionCosts: lpTuitionCosts, phases: lpPhases,
-    initCash: v('initCash'), initSp500: v('initSp500'), initSchd: v('initSchd'), initDomestic: v('initDomestic'), initDiv: 0,
+    initCash: v('initCash'), initSp500: v('initSp500'), initSchd: v('initSchd'), initDomestic: v('initDomestic'),
+    initEtfDiv: v('initEtfDiv'), initDomDiv: v('initDomDiv'), initDiv: 0,
   };
   lpUpdateNisaWarnings(params);
   return params;
